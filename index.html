@@ -86,7 +86,7 @@
     const SCOPES = ['User.Read', 'Files.ReadWrite'];
     const DATA_FILE = 'flujos_caja.json';
     const msalApp = new msal.PublicClientApplication({ auth: { clientId: CLIENT_ID, authority: AUTHORITY, redirectUri: window.location.origin + window.location.pathname }, cache: { cacheLocation: 'localStorage' } });
-    const msalReady = msalApp.initialize();
+    const msalReady = msalApp.initialize().then(() => msalApp.handleRedirectPromise());
     let account = null;
     let dataset = { version: 1, flows: [], payments: [] };
     let folderLinkValue = localStorage.getItem('cashflow_folder_link') || '';
@@ -179,11 +179,13 @@
     document.getElementById('signInButton').addEventListener('click', async () => {
       try {
         await msalReady;
-        const result = await msalApp.loginPopup({ scopes: SCOPES }); account = result.account; msalApp.setActiveAccount(account);
-        document.getElementById('signInButton').textContent = account.username;
-        if (folderLinkValue) { document.getElementById('folderLink').value = folderLinkValue; await loadCloudData(); }
-        else setStatus('Conectado · falta carpeta', 'text-amber-600');
+        setStatus('Abriendo inicio de sesión…', 'text-amber-600');
+        await msalApp.loginRedirect({ scopes: SCOPES });
       } catch (error) { tell(`No se pudo conectar: ${error.message}`, 'error'); setStatus('Error de conexión', 'text-rose-600'); }
+    });
+    document.getElementById('folderLink').addEventListener('input', event => {
+      folderLinkValue = event.target.value.trim();
+      localStorage.setItem('cashflow_folder_link', folderLinkValue);
     });
     document.getElementById('saveFolderButton').addEventListener('click', async () => {
       folderLinkValue = document.getElementById('folderLink').value.trim();
@@ -255,9 +257,16 @@
       dataset.payments.push(...pendingImport); pendingImport = []; document.getElementById('importPreview').classList.add('hidden'); document.getElementById('excelInput').value = ''; await persistChange(); switchTab('payments');
     });
     document.getElementById('folderLink').value = folderLinkValue;
-    msalReady.then(() => {
+    msalReady.then(async result => {
+      if (result?.account) account = result.account;
+      if (!account) account = msalApp.getActiveAccount() || msalApp.getAllAccounts()[0] || null;
+      if (account) msalApp.setActiveAccount(account);
       const accounts = msalApp.getAllAccounts(); if (accounts.length) { account = accounts[0]; msalApp.setActiveAccount(account); document.getElementById('signInButton').textContent = account.username; setStatus('Cuenta guardada · actualizar OneDrive', 'text-amber-600'); }
       render();
+      if (account && folderLinkValue) {
+        try { await loadCloudData(); }
+        catch (error) { setStatus('Conectado · revisar carpeta', 'text-rose-600'); tell(error.message, 'error'); }
+      } else if (account) setStatus('Conectado · falta carpeta', 'text-amber-600');
     }).catch(error => { setStatus('Error al iniciar autenticación', 'text-rose-600'); tell(error.message, 'error'); });
   </script>
 </body>
