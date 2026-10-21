@@ -25,7 +25,7 @@
   <header class="bg-slate-950 text-white">
     <div class="max-w-7xl mx-auto px-5 py-4 flex flex-wrap items-center justify-between gap-4">
       <div><div class="text-xs uppercase tracking-[.2em] text-sky-300">Dimalcco</div><h1 class="text-xl font-bold">Control de flujos de caja</h1></div>
-      <div class="flex items-center gap-3"><span id="syncStatus" class="text-sm text-slate-300">Sin conectar</span><button id="signInButton" class="btn bg-sky-500 hover:bg-sky-400 text-white">Conectar Microsoft</button></div>
+      <div class="flex items-center gap-3"><span id="syncStatus" class="text-sm text-slate-300">Sin conectar</span><button id="resetDataButton" class="btn border border-rose-400 text-rose-100 hover:bg-rose-900">Reiniciar datos</button><button id="signInButton" class="btn bg-sky-500 hover:bg-sky-400 text-white">Conectar Microsoft</button></div>
     </div>
   </header>
 
@@ -207,6 +207,28 @@
         setStatus('Abriendo inicio de sesión…', 'text-amber-600');
         await msalApp.loginRedirect({ scopes: SCOPES });
       } catch (error) { tell(`No se pudo conectar: ${error.message}`, 'error'); setStatus('Error de conexión', 'text-rose-600'); }
+    });
+    document.getElementById('resetDataButton').addEventListener('click', async () => {
+      if (!account) return tell('Conecta Microsoft antes de reiniciar los datos compartidos.', 'error');
+      if (!folderLinkValue) return tell('Guarda primero la carpeta compartida de OneDrive.', 'error');
+      if (!confirm('Esto eliminará TODOS los flujos y pagos del archivo compartido de OneDrive para ti y Finanzas. Esta acción no se puede deshacer. ¿Deseas continuar?')) return;
+      if (prompt('Para confirmar, escribe BORRAR:') !== 'BORRAR') return tell('Reinicio cancelado; no se borró ningún dato.', 'info');
+      const previousDataset = dataset;
+      try {
+        if (!folderDrive || !folderItemId) await resolveFolder();
+        dataset = { version: 1, flows: [], payments: [] };
+        await saveCloudData();
+        pendingImport = [];
+        document.getElementById('importPreview').classList.add('hidden');
+        document.getElementById('excelInput').value = '';
+        render();
+        tell('Se reiniciaron los flujos y pagos compartidos en OneDrive.', 'success');
+      } catch (error) {
+        dataset = previousDataset;
+        render();
+        setStatus('Error al reiniciar', 'text-rose-600');
+        tell(`No se pudieron reiniciar los datos: ${error.message}`, 'error');
+      }
     });
     document.getElementById('folderLink').addEventListener('input', event => {
       folderLinkValue = event.target.value.trim();
