@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dimalcco | Control de flujos de caja</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://alcdn.msauth.net/browser/3.26.1/js/msal-browser.min.js"></script>
+  <style>
+    body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #f4f7fb; }
+    .panel { background: white; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 8px 28px rgba(15,23,42,.05); }
+    .field { width: 100%; border: 1px solid #cbd5e1; border-radius: 9px; padding: 10px 12px; color: #0f172a; background: white; }
+    .field:focus { outline: 2px solid #bae6fd; border-color: #0284c7; }
+    .btn { border-radius: 9px; padding: 10px 14px; font-weight: 650; transition: .15s; }
+    .btn-primary { color: white; background: #0369a1; }
+    .btn-primary:hover { background: #075985; }
+    .btn-light { color: #334155; background: white; border: 1px solid #cbd5e1; }
+    .btn-light:hover { background: #f8fafc; }
+    .badge-open { color: #0369a1; background: #e0f2fe; }
+    .badge-closed { color: #047857; background: #d1fae5; }
+    .tab-active { color: #0369a1; border-bottom: 2px solid #0284c7; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-800">
+  <header class="bg-slate-950 text-white">
+    <div class="max-w-7xl mx-auto px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div><div class="text-xs uppercase tracking-[.2em] text-sky-300">Dimalcco</div><h1 class="text-xl font-bold">Control de flujos de caja</h1></div>
+      <div class="flex items-center gap-3"><span id="syncStatus" class="text-sm text-slate-300">Sin conectar</span><button id="signInButton" class="btn bg-sky-500 hover:bg-sky-400 text-white">Conectar Microsoft</button></div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto p-5 space-y-5">
+    <section id="setupPanel" class="panel p-5">
+      <div class="flex flex-wrap justify-between gap-4 items-start">
+        <div><h2 class="font-bold text-lg">Conexión compartida</h2><p class="text-sm text-slate-500 mt-1">Inicia sesión con la cuenta que tiene acceso a la carpeta de OneDrive. Pega el vínculo para que Finanzas y tú usen el mismo registro.</p></div>
+        <button id="saveFolderButton" class="btn btn-primary">Guardar carpeta</button>
+      </div>
+      <div class="grid md:grid-cols-[1fr_auto] gap-3 mt-4"><input id="folderLink" class="field" placeholder="Pega aquí el vínculo de uso compartido de la carpeta OneDrive"><div class="text-xs text-slate-500 self-center">El vínculo se guarda en este navegador.</div></div>
+      <p class="text-xs text-slate-500 mt-3">La app guarda un archivo <code>flujos_caja.json</code> dentro de esa carpeta. Si alguien más guardó cambios primero, avisará para que actualices y evites sobrescribirlos.</p>
+    </section>
+
+    <section class="grid sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div class="panel p-4"><div class="text-sm text-slate-500">Flujos abiertos</div><div id="openCount" class="text-2xl font-bold mt-1">0</div></div>
+      <div class="panel p-4"><div class="text-sm text-slate-500">Saldo pendiente</div><div id="openBalance" class="text-2xl font-bold mt-1">$0</div></div>
+      <div class="panel p-4"><div class="text-sm text-slate-500">Pagos sin asignar</div><div id="unassignedCount" class="text-2xl font-bold mt-1">0</div></div>
+      <div class="panel p-4"><div class="text-sm text-slate-500">Flujos cerrados</div><div id="closedCount" class="text-2xl font-bold mt-1">0</div></div>
+    </section>
+
+    <section class="panel overflow-hidden">
+      <div class="border-b flex gap-6 px-5">
+        <button class="tab-button py-4 font-semibold tab-active" data-tab="flows">Flujos</button>
+        <button class="tab-button py-4 font-semibold text-slate-500" data-tab="payments">Pagos</button>
+        <button class="tab-button py-4 font-semibold text-slate-500" data-tab="imports">Importar Excel</button>
+      </div>
+      <div id="flowsTab" class="p-5 space-y-4">
+        <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-lg font-bold">Flujos de caja</h2><p class="text-sm text-slate-500">Finanzas registra el ingreso y su número oficial. Los pagos pueden corresponder a meses diferentes.</p></div><button id="newFlowButton" class="btn btn-primary">Crear flujo</button></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3">Nº flujo</th><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Ingreso</th><th class="py-3 pr-3 text-right">Pagado</th><th class="py-3 pr-3 text-right">Saldo</th><th class="py-3">Estado</th></tr></thead><tbody id="flowsTable"></tbody></table></div>
+      </div>
+      <div id="paymentsTab" class="p-5 hidden space-y-4">
+        <div><h2 class="text-lg font-bold">Pagos registrados</h2><p class="text-sm text-slate-500">Asigna los pagos pendientes a un flujo abierto. Cada asignación descuenta el saldo.</p></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Valor</th><th class="py-3 pr-3">Nº flujo</th><th class="py-3">Acción</th></tr></thead><tbody id="paymentsTable"></tbody></table></div>
+      </div>
+      <div id="importsTab" class="p-5 hidden space-y-4">
+        <div><h2 class="text-lg font-bold">Importar pagos desde Excel</h2><p class="text-sm text-slate-500">Importa pagos con fecha, descripción y valor. Puedes asignar los flujos después de revisar los registros.</p></div>
+        <label class="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-sky-400"><span class="font-semibold">Selecciona o arrastra un Excel (.xlsx, .xls, .csv)</span><input id="excelInput" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label>
+        <div id="importPreview" class="hidden space-y-3"><div class="flex flex-wrap justify-between items-center gap-3"><span id="previewCount" class="text-sm text-slate-600"></span><button id="confirmImportButton" class="btn btn-primary">Agregar pagos</button></div><div class="overflow-auto max-h-80"><table class="w-full text-sm"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Descripción</th><th class="p-2 text-right">Valor</th></tr></thead><tbody id="previewRows"></tbody></table></div></div>
+      </div>
+    </section>
+    <div id="messageBox" class="hidden rounded-xl px-4 py-3 text-sm"></div>
+  </main>
+
+  <dialog id="flowDialog" class="rounded-2xl p-0 shadow-2xl backdrop:bg-slate-950/50 w-[min(95vw,520px)]">
+    <form id="flowForm" class="p-6 space-y-4"><div><h2 class="text-xl font-bold">Crear flujo de caja</h2><p class="text-sm text-slate-500">Usa el número asignado por Finanzas.</p></div>
+      <label class="block text-sm font-semibold">Número oficial<input id="flowNumber" required class="field mt-1" maxlength="60"></label>
+      <label class="block text-sm font-semibold">Fecha del ingreso<input id="flowDate" required type="date" class="field mt-1"></label>
+      <label class="block text-sm font-semibold">Descripción del ingreso<input id="flowDescription" required class="field mt-1" maxlength="180"></label>
+      <label class="block text-sm font-semibold">Valor del ingreso (COP)<input id="flowAmount" required type="number" min="1" step="1" class="field mt-1"></label>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" id="cancelFlowButton" class="btn btn-light">Cancelar</button><button class="btn btn-primary">Guardar flujo</button></div>
+    </form>
+  </dialog>
+
+  <script>
+    const CLIENT_ID = '0fec3505-3969-4b2a-bc56-477ebfb2dd5d';
+    const AUTHORITY = 'https://login.microsoftonline.com/common';
+    const SCOPES = ['User.Read', 'Files.ReadWrite'];
+    const DATA_FILE = 'flujos_caja.json';
+    const msalApp = new msal.PublicClientApplication({ auth: { clientId: CLIENT_ID, authority: AUTHORITY, redirectUri: window.location.origin + window.location.pathname }, cache: { cacheLocation: 'localStorage' } });
+    const msalReady = msalApp.initialize();
+    let account = null;
+    let dataset = { version: 1, flows: [], payments: [] };
+    let folderLinkValue = localStorage.getItem('cashflow_folder_link') || '';
+    let folderDrive = null;
+    let folderItemId = null;
+    let dataItemId = null;
+    let dataETag = null;
+    let pendingImport = [];
+
+    const money = value => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value || 0);
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
+    const setStatus = (text, color = 'text-slate-300') => { const el = document.getElementById('syncStatus'); el.className = `text-sm ${color}`; el.textContent = text; };
+    const tell = (text, kind = 'info') => { const el = document.getElementById('messageBox'); el.className = `rounded-xl px-4 py-3 text-sm ${kind === 'error' ? 'bg-rose-50 text-rose-800 border border-rose-200' : kind === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-sky-50 text-sky-800 border border-sky-200'}`; el.textContent = text; el.classList.remove('hidden'); };
+    function flowBalance(flow) { return Math.round((Number(flow.amount) - dataset.payments.filter(p => p.flowId === flow.id).reduce((sum, p) => sum + Number(p.amount), 0)) * 100) / 100; }
+    function flowPaid(flow) { return Number(flow.amount) - flowBalance(flow); }
+    function render() {
+      const openFlows = dataset.flows.filter(f => f.status === 'open');
+      document.getElementById('openCount').textContent = openFlows.length;
+      document.getElementById('openBalance').textContent = money(openFlows.reduce((sum, f) => sum + flowBalance(f), 0));
+      document.getElementById('closedCount').textContent = dataset.flows.filter(f => f.status === 'closed').length;
+      document.getElementById('unassignedCount').textContent = dataset.payments.filter(p => !p.flowId).length;
+      const flows = [...dataset.flows].sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+      document.getElementById('flowsTable').innerHTML = flows.length ? flows.map(f => `<tr class="border-b last:border-0"><td class="py-3 pr-3 font-bold">${escapeHtml(f.number)}</td><td class="py-3 pr-3">${escapeHtml(f.date)}</td><td class="py-3 pr-3">${escapeHtml(f.description)}</td><td class="py-3 pr-3 text-right">${money(f.amount)}</td><td class="py-3 pr-3 text-right">${money(flowPaid(f))}</td><td class="py-3 pr-3 text-right font-semibold ${flowBalance(f) < 0 ? 'text-rose-700' : ''}">${money(flowBalance(f))}</td><td class="py-3"><span class="rounded-full px-2 py-1 text-xs font-bold ${f.status === 'closed' ? 'badge-closed' : 'badge-open'}">${f.status === 'closed' ? 'Cerrado' : 'Abierto'}</span></td></tr>`).join('') : '<tr><td colspan="7" class="py-10 text-center text-slate-500">Aún no hay flujos. Finanzas puede crear el primero.</td></tr>';
+      document.getElementById('paymentsTable').innerHTML = dataset.payments.length ? [...dataset.payments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
+        const flow = dataset.flows.find(f => f.id === p.flowId);
+        const choices = dataset.flows.filter(f => f.status === 'open').map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.number)} · saldo ${money(flowBalance(f))}</option>`).join('');
+        return `<tr class="border-b last:border-0"><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3">${flow ? escapeHtml(flow.number) : '<span class="text-amber-700">Pendiente</span>'}</td><td class="py-3">${!p.flowId ? `<div class="flex gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button></div>` : '<span class="text-emerald-700">Aplicado</span>'}</td></tr>`;
+      }).join('') : '<tr><td colspan="5" class="py-10 text-center text-slate-500">Todavía no hay pagos importados.</td></tr>';
+    }
+    function switchTab(name) {
+      for (const tab of ['flows','payments','imports']) document.getElementById(`${tab}Tab`).classList.toggle('hidden', tab !== name);
+      document.querySelectorAll('.tab-button').forEach(button => { const active = button.dataset.tab === name; button.classList.toggle('tab-active', active); button.classList.toggle('text-slate-500', !active); });
+    }
+    function bytesToBase64Url(value) { const bytes = new TextEncoder().encode(value); let binary = ''; bytes.forEach(byte => binary += String.fromCharCode(byte)); return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
+    function shareIdFromUrl(url) { return `u!${bytesToBase64Url(url)}`; }
+    async function acquireToken() {
+      await msalReady;
+      if (!account) throw new Error('Primero conecta una cuenta Microsoft.');
+      try { return (await msalApp.acquireTokenSilent({ scopes: SCOPES, account })).accessToken; }
+      catch { return (await msalApp.acquireTokenPopup({ scopes: SCOPES, account })).accessToken; }
+    }
+    async function graph(path, options = {}) {
+      const token = await acquireToken();
+      const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
+      if (!response.ok) { const details = await response.text(); const error = new Error(`Microsoft Graph (${response.status}): ${details}`); error.status = response.status; throw error; }
+      if (response.status === 204) return null;
+      return response.json();
+    }
+    async function resolveFolder() {
+      if (!folderLinkValue) throw new Error('Pega y guarda primero el vínculo compartido de la carpeta.');
+      const item = await graph(`/shares/${shareIdFromUrl(folderLinkValue)}/driveItem`);
+      const source = item.remoteItem || item;
+      folderDrive = source.parentReference?.driveId || item.parentReference?.driveId;
+      folderItemId = source.id || item.id;
+      if (!folderDrive || !folderItemId || !source.folder && !item.folder) throw new Error('El vínculo no parece apuntar a una carpeta compartida. Copia el vínculo de OneDrive de la carpeta Control de flujos de caja.');
+    }
+    async function loadCloudData() {
+      setStatus('Leyendo OneDrive…', 'text-amber-600');
+      await resolveFolder();
+      const path = `/drives/${encodeURIComponent(folderDrive)}/items/${encodeURIComponent(folderItemId)}:/${DATA_FILE}`;
+      const token = await acquireToken();
+      const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (response.status === 404) { dataset = { version: 1, flows: [], payments: [] }; dataItemId = null; dataETag = null; }
+      else {
+        if (!response.ok) throw new Error(`No pude consultar el registro (${response.status}). Revisa que la carpeta esté compartida con permiso de edición.`);
+        const metadata = await response.json(); dataItemId = metadata.id; dataETag = metadata.eTag;
+        const contentResponse = await fetch(metadata['@microsoft.graph.downloadUrl'], { cache: 'no-store' });
+        if (!contentResponse.ok) throw new Error('La carpeta respondió, pero no se pudo descargar el registro de flujos.');
+        dataset = await contentResponse.json();
+      }
+      render(); setStatus('Sincronizado con OneDrive', 'text-emerald-600');
+    }
+    async function saveCloudData() {
+      if (!account) throw new Error('Conecta Microsoft antes de guardar.');
+      if (!folderDrive) await resolveFolder();
+      const token = await acquireToken();
+      const path = `/drives/${encodeURIComponent(folderDrive)}/items/${encodeURIComponent(folderItemId)}:/${DATA_FILE}:/content`;
+      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+      if (dataETag) headers['If-Match'] = dataETag;
+      else headers['If-None-Match'] = '*';
+      setStatus('Guardando…', 'text-amber-600');
+      const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, { method: 'PUT', headers, body: JSON.stringify({ ...dataset, updatedAt: new Date().toISOString() }, null, 2) });
+      if (response.status === 412 || response.status === 409) { setStatus('Hay cambios nuevos', 'text-rose-600'); throw new Error('Otra persona guardó cambios mientras editabas. Pulsa “Actualizar desde OneDrive” y vuelve a aplicar tu cambio.'); }
+      if (!response.ok) throw new Error(`No se pudo guardar en OneDrive (${response.status}). Revisa permisos de edición de la carpeta.`);
+      const metadata = await response.json(); dataItemId = metadata.id; dataETag = metadata.eTag;
+      setStatus('Guardado en OneDrive', 'text-emerald-600');
+    }
+    async function persistChange() { try { await saveCloudData(); render(); tell('Cambios guardados en la carpeta compartida.', 'success'); } catch (error) { setStatus('Error al guardar', 'text-rose-600'); tell(error.message, 'error'); } }
+
+    document.getElementById('signInButton').addEventListener('click', async () => {
+      try {
+        await msalReady;
+        const result = await msalApp.loginPopup({ scopes: SCOPES }); account = result.account; msalApp.setActiveAccount(account);
+        document.getElementById('signInButton').textContent = account.username;
+        if (folderLinkValue) { document.getElementById('folderLink').value = folderLinkValue; await loadCloudData(); }
+        else setStatus('Conectado · falta carpeta', 'text-amber-600');
+      } catch (error) { tell(`No se pudo conectar: ${error.message}`, 'error'); setStatus('Error de conexión', 'text-rose-600'); }
+    });
+    document.getElementById('saveFolderButton').addEventListener('click', async () => {
+      folderLinkValue = document.getElementById('folderLink').value.trim();
+      if (!folderLinkValue) return tell('Pega el vínculo de la carpeta de OneDrive.', 'error');
+      localStorage.setItem('cashflow_folder_link', folderLinkValue);
+      if (account) { try { await loadCloudData(); tell('Carpeta conectada; el registro compartido está cargado.', 'success'); } catch (error) { tell(error.message, 'error'); } }
+      else tell('Vínculo guardado en este navegador. Pulsa “Conectar Microsoft” para validar acceso.', 'success');
+    });
+    document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
+    document.getElementById('newFlowButton').addEventListener('click', () => { document.getElementById('flowForm').reset(); document.getElementById('flowDate').value = new Date().toISOString().slice(0,10); document.getElementById('flowDialog').showModal(); });
+    document.getElementById('cancelFlowButton').addEventListener('click', () => document.getElementById('flowDialog').close());
+    document.getElementById('flowForm').addEventListener('submit', async event => {
+      event.preventDefault(); const number = document.getElementById('flowNumber').value.trim();
+      if (dataset.flows.some(flow => flow.number.toLowerCase() === number.toLowerCase())) return tell('Ese número de flujo ya existe.', 'error');
+      dataset.flows.push({ id: crypto.randomUUID(), number, date: document.getElementById('flowDate').value, description: document.getElementById('flowDescription').value.trim(), amount: Number(document.getElementById('flowAmount').value), status: 'open', createdAt: new Date().toISOString() });
+      document.getElementById('flowDialog').close(); await persistChange();
+    });
+    window.assignPayment = async paymentId => {
+      const payment = dataset.payments.find(item => item.id === paymentId); const flowId = document.getElementById(`assign-${paymentId}`).value;
+      if (!flowId) return tell('Selecciona un flujo abierto.', 'error');
+      const flow = dataset.flows.find(item => item.id === flowId); const newBalance = flowBalance(flow) - Number(payment.amount);
+      if (newBalance < 0) return tell(`Este pago supera el saldo del flujo ${flow.number} por ${money(Math.abs(newBalance))}. No se asignó.`, 'error');
+      payment.flowId = flowId; if (newBalance === 0) flow.status = 'closed';
+      await persistChange(); if (newBalance === 0) tell(`Pago aplicado: el flujo ${flow.number} llegó a cero y quedó cerrado.`, 'success');
+    };
+
+    function normalizedHeader(value) { return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
+    function parseAmount(value) {
+      if (typeof value === 'number') return value;
+      let text = String(value ?? '').replace(/[^\d,.-]/g, '').trim();
+      if (text.includes(',') && text.includes('.')) text = text.lastIndexOf(',') > text.lastIndexOf('.') ? text.replace(/\./g, '').replace(',', '.') : text.replace(/,/g, '');
+      else if (text.includes(',')) text = text.replace(',', '.');
+      return Number(text) || 0;
+    }
+    function parseExcelDate(value) {
+      if (value instanceof Date && !isNaN(value)) return value.toISOString().slice(0,10);
+      if (typeof value === 'number') { const date = XLSX.SSF.parse_date_code(value); if (date) return `${date.y}-${String(date.m).padStart(2,'0')}-${String(date.d).padStart(2,'0')}`; }
+      const text = String(value || '').trim(); if (!text) return new Date().toISOString().slice(0,10);
+      const match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+      if (match) { const year = match[3].length === 2 ? `20${match[3]}` : match[3]; return `${year}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}`; }
+      const date = new Date(text); return isNaN(date) ? new Date().toISOString().slice(0,10) : date.toISOString().slice(0,10);
+    }
+    document.getElementById('excelInput').addEventListener('change', async event => {
+      const file = event.target.files[0]; if (!file) return;
+      try {
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: '' }).filter(row => row.some(cell => String(cell).trim()));
+        if (rows.length < 2) throw new Error('El Excel debe tener encabezados y al menos una fila de pagos.');
+        const headers = rows[0].map(normalizedHeader);
+        let dateIndex = headers.findIndex(h => /fecha|date/.test(h));
+        let descIndex = headers.findIndex(h => /descripcion|concepto|detalle|proveedor|beneficiario/.test(h));
+        let amountIndex = headers.findIndex(h => /valor|monto|importe|total|amount|pago/.test(h));
+        if (dateIndex < 0 || descIndex < 0 || amountIndex < 0) {
+          const sample = rows[1] || [];
+          if (dateIndex < 0) dateIndex = sample.findIndex(value => (value instanceof Date) || /\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(String(value)));
+          if (amountIndex < 0) amountIndex = sample.findIndex(value => parseAmount(value) > 0);
+          if (descIndex < 0) descIndex = sample.findIndex((value, index) => index !== dateIndex && index !== amountIndex && String(value).trim().length > 2);
+        }
+        if ([dateIndex, descIndex, amountIndex].some(index => index < 0)) throw new Error('No pude identificar fecha, descripción y valor. Usa encabezados como Fecha, Descripción y Valor.');
+        pendingImport = rows.slice(1).map(row => ({ id: crypto.randomUUID(), date: parseExcelDate(row[dateIndex]), description: String(row[descIndex] || '').trim() || 'Pago importado', amount: parseAmount(row[amountIndex]), flowId: null, sourceFile: file.name, createdAt: new Date().toISOString() })).filter(payment => payment.amount > 0);
+        if (!pendingImport.length) throw new Error('No encontré pagos con valor mayor que cero.');
+        document.getElementById('previewCount').textContent = `${pendingImport.length} pagos listos para revisar (${file.name})`;
+        document.getElementById('previewRows').innerHTML = pendingImport.slice(0,100).map(payment => `<tr class="border-b"><td class="p-2">${escapeHtml(payment.date)}</td><td class="p-2">${escapeHtml(payment.description)}</td><td class="p-2 text-right">${money(payment.amount)}</td></tr>`).join('') + (pendingImport.length > 100 ? `<tr><td colspan="3" class="p-2 text-center text-slate-500">Vista previa de los primeros 100; se importarán ${pendingImport.length} pagos.</td></tr>` : '');
+        document.getElementById('importPreview').classList.remove('hidden');
+      } catch (error) { tell(error.message, 'error'); pendingImport = []; }
+    });
+    document.getElementById('confirmImportButton').addEventListener('click', async () => {
+      if (!pendingImport.length) return;
+      dataset.payments.push(...pendingImport); pendingImport = []; document.getElementById('importPreview').classList.add('hidden'); document.getElementById('excelInput').value = ''; await persistChange(); switchTab('payments');
+    });
+    document.getElementById('folderLink').value = folderLinkValue;
+    msalReady.then(() => {
+      const accounts = msalApp.getAllAccounts(); if (accounts.length) { account = accounts[0]; msalApp.setActiveAccount(account); document.getElementById('signInButton').textContent = account.username; setStatus('Cuenta guardada · actualizar OneDrive', 'text-amber-600'); }
+      render();
+    }).catch(error => { setStatus('Error al iniciar autenticación', 'text-rose-600'); tell(error.message, 'error'); });
+  </script>
+</body>
+</html>
