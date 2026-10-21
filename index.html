@@ -6,7 +6,6 @@
   <title>Dimalcco | Control de flujos de caja</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://alcdn.msauth.net/browser/3.26.1/js/msal-browser.min.js"></script>
   <style>
     body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #f4f7fb; }
     .panel { background: white; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 8px 28px rgba(15,23,42,.05); }
@@ -81,6 +80,31 @@
   </dialog>
 
   <script>
+    function loadScript(url) {
+      return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = url;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error(`No se pudo cargar ${new URL(url).hostname}`));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function loadMsal() {
+      const sources = [
+        'https://alcdn.msauth.net/browser/3.26.1/js/msal-browser.min.js',
+        'https://alcdn.msftauth.net/browser/3.26.1/js/msal-browser.min.js'
+      ];
+      for (const source of sources) {
+        try {
+          await loadScript(source);
+          if (window.msal?.PublicClientApplication) return;
+        } catch (error) {}
+      }
+      throw new Error('No cargó la biblioteca de inicio de sesión de Microsoft. Revisa la conexión o desactiva temporalmente el bloqueador para este sitio y recarga.');
+    }
+
+    loadMsal().then(() => {
     const CLIENT_ID = '0fec3505-3969-4b2a-bc56-477ebfb2dd5d';
     const AUTHORITY = 'https://login.microsoftonline.com/common';
     const SCOPES = ['User.Read', 'Files.ReadWrite'];
@@ -268,6 +292,22 @@
         catch (error) { setStatus('Conectado · revisar carpeta', 'text-rose-600'); tell(error.message, 'error'); }
       } else if (account) setStatus('Conectado · falta carpeta', 'text-amber-600');
     }).catch(error => { setStatus('Error al iniciar autenticación', 'text-rose-600'); tell(error.message, 'error'); });
+    }).catch(error => {
+      const status = document.getElementById('syncStatus');
+      status.textContent = 'No cargó el inicio de sesión';
+      status.className = 'text-sm text-rose-600';
+      const button = document.getElementById('signInButton');
+      button.addEventListener('click', () => {
+        const message = document.getElementById('messageBox');
+        message.className = 'rounded-xl px-4 py-3 text-sm bg-rose-50 text-rose-800 border border-rose-200';
+        message.textContent = error.message;
+        message.classList.remove('hidden');
+      });
+      const message = document.getElementById('messageBox');
+      message.className = 'rounded-xl px-4 py-3 text-sm bg-rose-50 text-rose-800 border border-rose-200';
+      message.textContent = error.message;
+      message.classList.remove('hidden');
+    });
   </script>
 </body>
 </html>
