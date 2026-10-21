@@ -115,7 +115,7 @@
     const AUTHORITY = 'https://login.microsoftonline.com/common';
     const SCOPES = ['User.Read', 'Files.ReadWrite'];
     const DATA_FILE = 'flujos_caja.json';
-    const msalApp = new msal.PublicClientApplication({ auth: { clientId: CLIENT_ID, authority: AUTHORITY, redirectUri: window.location.origin + window.location.pathname }, cache: { cacheLocation: 'localStorage' } });
+    const msalApp = new msal.PublicClientApplication({ auth: { clientId: CLIENT_ID, authority: AUTHORITY, redirectUri: 'https://deccy1986.github.io/conciliador-flujos-caja/' }, cache: { cacheLocation: 'localStorage' } });
     const msalReady = msalApp.initialize().then(() => msalApp.handleRedirectPromise());
     let account = null;
     let dataset = { version: 1, flows: [], payments: [] };
