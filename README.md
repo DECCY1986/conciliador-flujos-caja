@@ -2,7 +2,7 @@
 
 Aplicación estática para registrar ingresos por flujo, importar pagos de Excel y guardar el registro compartido en una carpeta de OneDrive usando Microsoft Graph.
 
-MSAL Browser está incluida localmente en `vendor/` para que el inicio de sesión no dependa de que el navegador alcance un CDN externo.
+MSAL Browser está incluida localmente como `vendor/runtime.js` para que el inicio de sesión no dependa de un CDN externo ni de filtros por nombre de archivo.
 
 ## Publicar en GitHub Pages
 
