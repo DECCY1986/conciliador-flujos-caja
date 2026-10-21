@@ -2,6 +2,8 @@
 
 Aplicación estática para registrar ingresos por flujo, importar pagos de Excel y guardar el registro compartido en una carpeta de OneDrive usando Microsoft Graph.
 
+MSAL Browser está incluida localmente en `vendor/` para que el inicio de sesión no dependa de que el navegador alcance un CDN externo.
+
 ## Publicar en GitHub Pages
 
 1. Sube `index.html` y este `README.md` a la rama `main` del repositorio `DECCY1986/conciliador-flujos-caja`.
