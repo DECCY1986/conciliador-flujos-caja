@@ -64,6 +64,11 @@
         <div><h2 class="text-lg font-bold">Importar pagos desde Excel</h2><p class="text-sm text-slate-500">Importa pagos con fecha, descripción y valor. Puedes asignar los flujos después de revisar los registros.</p></div>
         <label class="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-sky-400"><span class="font-semibold">Selecciona o arrastra un Excel (.xlsx, .xls, .csv)</span><input id="excelInput" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label>
         <div id="importPreview" class="hidden space-y-3"><div class="flex flex-wrap justify-between items-center gap-3"><span id="previewCount" class="text-sm text-slate-600"></span><button id="confirmImportButton" class="btn btn-primary">Agregar pagos</button></div><div class="overflow-auto max-h-80"><table class="w-full text-sm"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Descripción</th><th class="p-2 text-right">Valor</th></tr></thead><tbody id="previewRows"></tbody></table></div></div>
+        <div class="border-t pt-5 space-y-3">
+          <div><h3 class="font-bold">Importar flujos de caja de 2026</h3><p class="text-sm text-slate-500">Usa el archivo de Finanzas con las columnas de número, valor y fecha de ingreso. Se importan los flujos; los gastos no se vuelven a cargar.</p></div>
+          <label class="block border-2 border-dashed border-slate-300 rounded-xl p-6 text-center cursor-pointer hover:border-sky-400"><span class="font-semibold">Seleccionar Excel de flujos (.xlsx o .xls)</span><input id="flowExcelInput" type="file" accept=".xlsx,.xls" class="hidden"></label>
+          <div id="flowImportPreview" class="hidden space-y-3"><div class="flex flex-wrap justify-between items-center gap-3"><span id="flowPreviewCount" class="text-sm text-slate-600"></span><button id="confirmFlowImportButton" class="btn btn-primary">Agregar flujos</button></div><div class="overflow-auto max-h-80"><table class="w-full text-sm"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-2 text-left">Nº flujo</th><th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Descripción</th><th class="p-2 text-right">Ingreso</th></tr></thead><tbody id="flowPreviewRows"></tbody></table></div></div>
+        </div>
       </div>
     </section>
     <div id="messageBox" class="hidden rounded-xl px-4 py-3 text-sm"></div>
@@ -120,6 +125,7 @@
     let dataItemId = null;
     let dataETag = null;
     let pendingImport = [];
+    let pendingFlows = [];
 
     const money = value => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value || 0);
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
@@ -302,6 +308,65 @@
     document.getElementById('confirmImportButton').addEventListener('click', async () => {
       if (!pendingImport.length) return;
       dataset.payments.push(...pendingImport); pendingImport = []; document.getElementById('importPreview').classList.add('hidden'); document.getElementById('excelInput').value = ''; await persistChange(); switchTab('payments');
+    });
+    document.getElementById('flowExcelInput').addEventListener('change', async event => {
+      const file = event.target.files[0]; if (!file) return;
+      try {
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: '' });
+        if (!rows.length) throw new Error('El archivo está vacío.');
+        const headers = rows[0].map(normalizedHeader);
+        const flowIndex = headers.findIndex(header => /numero.*flujo/.test(header));
+        const amountIndex = headers.findIndex(header => /valor.*ingreso/.test(header));
+        const dateIndex = headers.findIndex(header => /fecha.*ingreso/.test(header));
+        const descriptionIndex = headers.findIndex(header => /razon.*ingreso/.test(header));
+        if ([flowIndex, amountIndex, dateIndex].some(index => index < 0)) throw new Error('No encontré las columnas “Número de flujo de caja”, “Valor de ingreso” y “Fecha de ingreso”.');
+        const grouped = new Map();
+        let ignoredYear = 0;
+        for (const row of rows.slice(1)) {
+          const number = String(row[flowIndex] ?? '').trim();
+          const date = parseExcelDate(row[dateIndex]);
+          const amount = parseAmount(row[amountIndex]);
+          if (!number || !amount || !date || date.slice(0,4) !== '2026') { if (date && date.slice(0,4) !== '2026') ignoredYear++; continue; }
+          const description = descriptionIndex >= 0 ? String(row[descriptionIndex] ?? '').trim() : '';
+          const existing = grouped.get(number) || { id: crypto.randomUUID(), number, date, description: '', amount, dates: new Set(), amounts: new Set(), status: 'open', createdAt: new Date().toISOString() };
+          existing.dates.add(date); existing.amounts.add(amount);
+          if (description && !/^subtotal$/i.test(description) && !existing.description) existing.description = description;
+          grouped.set(number, existing);
+        }
+        const conflicts = [...grouped.values()].filter(flow => flow.dates.size > 1 || flow.amounts.size > 1);
+        if (conflicts.length) throw new Error(`Hay ${conflicts.length} número(s) de flujo con fechas o valores diferentes: ${conflicts.map(flow => flow.number).join(', ')}. Corrige esos números en Excel antes de importar.`);
+        const existingNumbers = new Set(dataset.flows.map(flow => String(flow.number).trim().toLowerCase()));
+        const alreadyPresent = [...grouped.values()].filter(flow => existingNumbers.has(flow.number.toLowerCase())).length;
+        pendingFlows = [...grouped.values()].filter(flow => !existingNumbers.has(flow.number.toLowerCase())).map(({ dates, amounts, ...flow }) => ({ ...flow, description: flow.description || 'Ingreso importado 2026' }));
+        if (!grouped.size) throw new Error('No encontré flujos con ingreso fechado en 2026.');
+        document.getElementById('flowPreviewCount').textContent = `${pendingFlows.length} flujos nuevos · ${alreadyPresent} ya estaban cargados · ${ignoredYear} filas de otros años ignoradas (${file.name})`;
+        document.getElementById('flowPreviewRows').innerHTML = pendingFlows.slice(0,100).map(flow => `<tr class="border-b"><td class="p-2 font-semibold">${escapeHtml(flow.number)}</td><td class="p-2">${escapeHtml(flow.date)}</td><td class="p-2">${escapeHtml(flow.description)}</td><td class="p-2 text-right">${money(flow.amount)}</td></tr>`).join('') + (pendingFlows.length > 100 ? `<tr><td colspan="4" class="p-2 text-center text-slate-500">Vista previa de los primeros 100; se importarán ${pendingFlows.length} flujos.</td></tr>` : '');
+        document.getElementById('confirmFlowImportButton').disabled = !pendingFlows.length;
+        document.getElementById('confirmFlowImportButton').classList.toggle('opacity-50', !pendingFlows.length);
+        document.getElementById('flowImportPreview').classList.remove('hidden');
+      } catch (error) { pendingFlows = []; document.getElementById('flowImportPreview').classList.add('hidden'); tell(error.message, 'error'); }
+    });
+    document.getElementById('confirmFlowImportButton').addEventListener('click', async () => {
+      if (!pendingFlows.length) return;
+      if (!account || !folderLinkValue) return tell('Conecta Microsoft y carga la carpeta compartida antes de importar flujos.', 'error');
+      const previousFlows = dataset.flows;
+      const importedCount = pendingFlows.length;
+      try {
+        dataset.flows = [...dataset.flows, ...pendingFlows];
+        await saveCloudData();
+        pendingFlows = [];
+        document.getElementById('flowImportPreview').classList.add('hidden');
+        document.getElementById('flowExcelInput').value = '';
+        render();
+        tell(`Se importaron ${importedCount} flujos de 2026 a OneDrive. Los pagos existentes siguen sin asignar.`, 'success');
+        switchTab('flows');
+      } catch (error) {
+        dataset.flows = previousFlows;
+        render();
+        setStatus('Error al importar flujos', 'text-rose-600');
+        tell(`No se importaron los flujos: ${error.message}`, 'error');
+      }
     });
     document.getElementById('folderLink').value = folderLinkValue;
     msalReady.then(async result => {
