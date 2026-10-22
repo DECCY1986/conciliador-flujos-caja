@@ -155,7 +155,6 @@
       }
       const balanceFor = flow => Math.round((Number(flow.amount) - (paidByFlow.get(flow.id) || 0)) * 100) / 100;
       const paidFor = flow => Number(flow.amount) - balanceFor(flow);
-      const flowById = new Map(dataset.flows.map(flow => [flow.id, flow]));
       const openFlows = dataset.flows.filter(f => f.status === 'open');
       document.getElementById('openCount').textContent = openFlows.length;
       document.getElementById('openBalance').textContent = money(openFlows.reduce((sum, flow) => sum + balanceFor(flow), 0));
@@ -176,11 +175,11 @@
       const deleteSelectedButton = document.getElementById('deleteSelectedFlowsButton');
       deleteSelectedButton.textContent = `Eliminar seleccionados (${selectedFlowIds.size})`;
       deleteSelectedButton.disabled = selectedFlowIds.size === 0;
-      document.getElementById('paymentsTable').innerHTML = dataset.payments.length ? [...dataset.payments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
-        const flow = flowById.get(p.flowId);
-        const choices = !p.flowId ? openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('') : '';
-        return `<tr class="border-b last:border-0"><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3">${flow ? escapeHtml(flow.number) : '<span class="text-amber-700">Pendiente</span>'}</td><td class="py-3">${!p.flowId ? `<div class="flex gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button></div>` : '<span class="text-emerald-700">Aplicado</span>'}</td></tr>`;
-      }).join('') : '<tr><td colspan="5" class="py-10 text-center text-slate-500">Todavía no hay pagos importados.</td></tr>';
+      const pendingPayments = dataset.payments.filter(payment => !payment.flowId);
+      document.getElementById('paymentsTable').innerHTML = pendingPayments.length ? [...pendingPayments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
+        const choices = openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('');
+        return `<tr class="border-b last:border-0"><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3"><span class="text-amber-700">Pendiente</span></td><td class="py-3"><div class="flex gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button></div></td></tr>`;
+      }).join('') : '<tr><td colspan="5" class="py-10 text-center text-slate-500">No hay pagos pendientes de asignar.</td></tr>';
     }
     function renderFlowDetails() {
       const flow = dataset.flows.find(item => item.id === selectedFlowDetailsId);
