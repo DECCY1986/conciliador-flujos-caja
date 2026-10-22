@@ -471,7 +471,6 @@
       const flow = dataset.flows.find(item => item.id === flowId);
       if (!flow || flow.status !== 'open') return tell('El flujo seleccionado ya no está abierto. Actualiza la página e inténtalo de nuevo.', 'error');
       const newBalance = flowBalance(flow) - Number(payment.amount);
-      if (newBalance < 0) return tell(`Este pago supera el saldo del flujo ${flow.number} por ${money(Math.abs(newBalance))}. No se asignó.`, 'error');
       const previousStatus = flow.status;
       payment.flowId = flowId;
       if (Math.abs(newBalance) < 0.01) flow.status = 'closed';
@@ -479,7 +478,7 @@
       try {
         await saveCloudData();
         render();
-        tell(`Pago asignado al flujo ${flow.number}.${flow.status === 'closed' ? ' El saldo quedó en cero y el flujo se cerró.' : ''}`, 'success');
+        tell(`Pago asignado al flujo ${flow.number}.${flow.status === 'closed' ? ' El saldo quedó en cero y el flujo se cerró.' : newBalance < -0.01 ? ` El saldo quedó negativo en ${money(newBalance)}; puedes registrarle un ajuste de caja después.` : ''}`, 'success');
       } catch (error) {
         payment.flowId = null;
         flow.status = previousStatus;
