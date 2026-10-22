@@ -178,7 +178,7 @@
       const pendingPayments = dataset.payments.filter(payment => !payment.flowId);
       document.getElementById('paymentsTable').innerHTML = pendingPayments.length ? [...pendingPayments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
         const choices = openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('');
-        return `<tr class="border-b last:border-0"><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3"><span class="text-amber-700">Pendiente</span></td><td class="py-3"><div class="flex gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button></div></td></tr>`;
+        return `<tr class="border-b last:border-0"><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3"><span class="text-amber-700">Pendiente</span></td><td class="py-3"><div class="flex flex-wrap gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button><button class="btn border border-rose-300 text-rose-700 hover:bg-rose-50 py-1.5" onclick="deletePendingPayment('${escapeHtml(p.id)}')">Eliminar</button></div></td></tr>`;
       }).join('') : '<tr><td colspan="5" class="py-10 text-center text-slate-500">No hay pagos pendientes de asignar.</td></tr>';
     }
     function renderFlowDetails() {
@@ -440,6 +440,24 @@
       if (newBalance < 0) return tell(`Este pago supera el saldo del flujo ${flow.number} por ${money(Math.abs(newBalance))}. No se asignó.`, 'error');
       payment.flowId = flowId; if (newBalance === 0) flow.status = 'closed';
       await persistChange(); if (newBalance === 0) tell(`Pago aplicado: el flujo ${flow.number} llegó a cero y quedó cerrado.`, 'success');
+    };
+    window.deletePendingPayment = async paymentId => {
+      if (!account) return tell('Conecta Microsoft antes de eliminar un pago.', 'error');
+      const payment = dataset.payments.find(item => item.id === paymentId);
+      if (!payment || payment.flowId) return tell('Solo se pueden eliminar pagos pendientes desde esta pestaña.', 'error');
+      if (!confirm(`¿Eliminar el pago “${payment.description}” por ${money(payment.amount)}? Esta acción no se puede deshacer.`)) return;
+      const previousPayments = dataset.payments;
+      dataset.payments = dataset.payments.filter(item => item.id !== paymentId);
+      try {
+        await saveCloudData();
+        render();
+        tell('Pago pendiente eliminado.', 'success');
+      } catch (error) {
+        dataset.payments = previousPayments;
+        render();
+        setStatus('Error al eliminar', 'text-rose-600');
+        tell(`No se eliminó el pago: ${error.message}`, 'error');
+      }
     };
 
     function normalizedHeader(value) { return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
