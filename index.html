@@ -344,7 +344,8 @@
     document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
     document.getElementById('flowStatusFilter').addEventListener('change', render);
     document.getElementById('selectVisibleFlows').addEventListener('change', event => {
-      const visibleFlows = [...dataset.flows].filter(flow => event.target.checked || !selectedFlowIds.has(flow.id)).filter(flow => document.getElementById('flowStatusFilter').value === 'all' || flow.status === document.getElementById('flowStatusFilter').value);
+      const statusFilter = document.getElementById('flowStatusFilter').value;
+      const visibleFlows = dataset.flows.filter(flow => statusFilter === 'all' || flow.status === statusFilter);
       visibleFlows.forEach(flow => event.target.checked ? selectedFlowIds.add(flow.id) : selectedFlowIds.delete(flow.id));
       render();
     });
