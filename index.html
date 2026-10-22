@@ -148,16 +148,23 @@
     function flowBalance(flow) { return Math.round((Number(flow.amount) - dataset.payments.filter(p => p.flowId === flow.id).reduce((sum, p) => sum + Number(p.amount), 0)) * 100) / 100; }
     function flowPaid(flow) { return Number(flow.amount) - flowBalance(flow); }
     function render() {
+      const paidByFlow = new Map();
+      for (const payment of dataset.payments) {
+        if (payment.flowId) paidByFlow.set(payment.flowId, (paidByFlow.get(payment.flowId) || 0) + Number(payment.amount));
+      }
+      const balanceFor = flow => Math.round((Number(flow.amount) - (paidByFlow.get(flow.id) || 0)) * 100) / 100;
+      const paidFor = flow => Number(flow.amount) - balanceFor(flow);
+      const flowById = new Map(dataset.flows.map(flow => [flow.id, flow]));
       const openFlows = dataset.flows.filter(f => f.status === 'open');
       document.getElementById('openCount').textContent = openFlows.length;
-      document.getElementById('openBalance').textContent = money(openFlows.reduce((sum, f) => sum + flowBalance(f), 0));
+      document.getElementById('openBalance').textContent = money(openFlows.reduce((sum, flow) => sum + balanceFor(flow), 0));
       document.getElementById('closedCount').textContent = dataset.flows.filter(f => f.status === 'closed').length;
       document.getElementById('unassignedCount').textContent = dataset.payments.filter(p => !p.flowId).length;
       const flows = [...dataset.flows].sort((a,b) => b.createdAt.localeCompare(a.createdAt));
-      document.getElementById('flowsTable').innerHTML = flows.length ? flows.map(f => `<tr class="border-b last:border-0"><td class="py-3 pr-3 font-bold"><button type="button" data-open-flow="${escapeHtml(f.id)}" class="text-sky-800 hover:underline" title="Doble clic para ver pagos">${escapeHtml(f.number)}</button></td><td class="py-3 pr-3">${escapeHtml(f.date)}</td><td class="py-3 pr-3">${escapeHtml(f.description)}</td><td class="py-3 pr-3 text-right">${money(f.amount)}</td><td class="py-3 pr-3 text-right">${money(flowPaid(f))}</td><td class="py-3 pr-3 text-right font-semibold ${flowBalance(f) < 0 ? 'text-rose-700' : ''}">${money(flowBalance(f))}</td><td class="py-3"><span class="rounded-full px-2 py-1 text-xs font-bold ${f.status === 'closed' ? 'badge-closed' : 'badge-open'}">${f.status === 'closed' ? 'Cerrado' : 'Abierto'}</span></td></tr>`).join('') : '<tr><td colspan="7" class="py-10 text-center text-slate-500">Aún no hay flujos. Finanzas puede crear el primero.</td></tr>';
+      document.getElementById('flowsTable').innerHTML = flows.length ? flows.map(flow => `<tr class="border-b last:border-0"><td class="py-3 pr-3 font-bold"><button type="button" data-open-flow="${escapeHtml(flow.id)}" class="text-sky-800 hover:underline" title="Doble clic para ver pagos">${escapeHtml(flow.number)}</button></td><td class="py-3 pr-3">${escapeHtml(flow.date)}</td><td class="py-3 pr-3">${escapeHtml(flow.description)}</td><td class="py-3 pr-3 text-right">${money(flow.amount)}</td><td class="py-3 pr-3 text-right">${money(paidFor(flow))}</td><td class="py-3 pr-3 text-right font-semibold ${balanceFor(flow) < 0 ? 'text-rose-700' : ''}">${money(balanceFor(flow))}</td><td class="py-3"><span class="rounded-full px-2 py-1 text-xs font-bold ${flow.status === 'closed' ? 'badge-closed' : 'badge-open'}">${flow.status === 'closed' ? 'Cerrado' : 'Abierto'}</span></td></tr>`).join('') : '<tr><td colspan="7" class="py-10 text-center text-slate-500">Aún no hay flujos. Finanzas puede crear el primero.</td></tr>';
       document.getElementById('paymentsTable').innerHTML = dataset.payments.length ? [...dataset.payments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
-        const flow = dataset.flows.find(f => f.id === p.flowId);
-        const choices = dataset.flows.filter(f => f.status === 'open').map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.number)} · saldo ${money(flowBalance(f))}</option>`).join('');
+        const flow = flowById.get(p.flowId);
+        const choices = !p.flowId ? openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('') : '';
         return `<tr class="border-b last:border-0"><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3">${flow ? escapeHtml(flow.number) : '<span class="text-amber-700">Pendiente</span>'}</td><td class="py-3">${!p.flowId ? `<div class="flex gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button></div>` : '<span class="text-emerald-700">Aplicado</span>'}</td></tr>`;
       }).join('') : '<tr><td colspan="5" class="py-10 text-center text-slate-500">Todavía no hay pagos importados.</td></tr>';
     }
