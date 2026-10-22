@@ -54,7 +54,7 @@
       </div>
       <div id="flowsTab" class="p-5 space-y-4">
         <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-lg font-bold">Flujos de caja</h2><p class="text-sm text-slate-500">Finanzas registra el ingreso y su número oficial. Haz doble clic en el número para ver sus pagos y agregar otros.</p></div><div class="flex flex-wrap items-center gap-2"><label for="flowStatusFilter" class="text-sm font-semibold">Mostrar:</label><select id="flowStatusFilter" class="field w-auto"><option value="all">Todos</option><option value="open">Abiertos</option><option value="closed">Cerrados</option></select><button id="closeZeroBalanceFlowsButton" class="btn btn-light" disabled>Cerrar flujos en $0 (0)</button><button id="newFlowButton" class="btn btn-primary">Crear flujo</button></div></div>
-        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3">Nº flujo</th><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Ingreso</th><th class="py-3 pr-3 text-right">Pagado</th><th class="py-3 pr-3 text-right">Saldo</th><th class="py-3">Estado</th></tr></thead><tbody id="flowsTable"></tbody></table></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3">Nº flujo</th><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Ingreso</th><th class="py-3 pr-3 text-right">Pagado</th><th class="py-3 pr-3 text-right">Saldo</th><th class="py-3 pr-3">Estado</th><th class="py-3">Acción</th></tr></thead><tbody id="flowsTable"></tbody></table></div>
       </div>
       <div id="paymentsTab" class="p-5 hidden space-y-4">
         <div><h2 class="text-lg font-bold">Pagos registrados</h2><p class="text-sm text-slate-500">Asigna los pagos pendientes a un flujo abierto. Cada asignación descuenta el saldo.</p></div>
@@ -166,7 +166,7 @@
       const closeZeroBalanceButton = document.getElementById('closeZeroBalanceFlowsButton');
       closeZeroBalanceButton.textContent = `Cerrar flujos en $0 (${zeroBalanceOpenFlows.length})`;
       closeZeroBalanceButton.disabled = zeroBalanceOpenFlows.length === 0;
-      document.getElementById('flowsTable').innerHTML = flows.length ? flows.map(flow => `<tr class="border-b last:border-0"><td class="py-3 pr-3 font-bold"><button type="button" data-open-flow="${escapeHtml(flow.id)}" class="text-sky-800 hover:underline" title="Doble clic para ver pagos">${escapeHtml(flow.number)}</button></td><td class="py-3 pr-3">${escapeHtml(flow.date)}</td><td class="py-3 pr-3">${escapeHtml(flow.description)}</td><td class="py-3 pr-3 text-right">${money(flow.amount)}</td><td class="py-3 pr-3 text-right">${money(paidFor(flow))}</td><td class="py-3 pr-3 text-right font-semibold ${balanceFor(flow) < 0 ? 'text-rose-700' : ''}">${money(balanceFor(flow))}</td><td class="py-3"><span class="rounded-full px-2 py-1 text-xs font-bold ${flow.status === 'closed' ? 'badge-closed' : 'badge-open'}">${flow.status === 'closed' ? 'Cerrado' : 'Abierto'}</span></td></tr>`).join('') : `<tr><td colspan="7" class="py-10 text-center text-slate-500">${statusFilter === 'all' ? 'Aún no hay flujos. Finanzas puede crear el primero.' : `No hay flujos ${statusFilter === 'open' ? 'abiertos' : 'cerrados'}.`}</td></tr>`;
+      document.getElementById('flowsTable').innerHTML = flows.length ? flows.map(flow => `<tr class="border-b last:border-0"><td class="py-3 pr-3 font-bold"><button type="button" data-open-flow="${escapeHtml(flow.id)}" class="text-sky-800 hover:underline" title="Doble clic para ver pagos">${escapeHtml(flow.number)}</button></td><td class="py-3 pr-3">${escapeHtml(flow.date)}</td><td class="py-3 pr-3">${escapeHtml(flow.description)}</td><td class="py-3 pr-3 text-right">${money(flow.amount)}</td><td class="py-3 pr-3 text-right">${money(paidFor(flow))}</td><td class="py-3 pr-3 text-right font-semibold ${balanceFor(flow) < 0 ? 'text-rose-700' : ''}">${money(balanceFor(flow))}</td><td class="py-3 pr-3"><span class="rounded-full px-2 py-1 text-xs font-bold ${flow.status === 'closed' ? 'badge-closed' : 'badge-open'}">${flow.status === 'closed' ? 'Cerrado' : 'Abierto'}</span></td><td class="py-3"><button type="button" data-delete-flow="${escapeHtml(flow.id)}" class="btn border border-rose-300 text-rose-700 hover:bg-rose-50 py-1.5 px-2">Eliminar</button></td></tr>`).join('') : `<tr><td colspan="8" class="py-10 text-center text-slate-500">${statusFilter === 'all' ? 'Aún no hay flujos. Finanzas puede crear el primero.' : `No hay flujos ${statusFilter === 'open' ? 'abiertos' : 'cerrados'}.`}</td></tr>`;
       document.getElementById('paymentsTable').innerHTML = dataset.payments.length ? [...dataset.payments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
         const flow = flowById.get(p.flowId);
         const choices = !p.flowId ? openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('') : '';
@@ -197,6 +197,33 @@
       document.getElementById('flowPaymentForm').reset();
       document.getElementById('flowPaymentDate').value = new Date().toISOString().slice(0,10);
       document.getElementById('flowDetailsDialog').showModal();
+    }
+    async function deleteFlow(flowId) {
+      if (!account) return tell('Conecta Microsoft antes de eliminar un flujo.', 'error');
+      const flow = dataset.flows.find(item => item.id === flowId);
+      if (!flow) return;
+      const linkedPayments = dataset.payments.filter(payment => payment.flowId === flow.id).length;
+      const paymentNotice = linkedPayments ? ` Se conservarán sus ${linkedPayments} pagos asociados como pendientes para que puedas reasignarlos.` : '';
+      if (!confirm(`¿Eliminar el flujo ${flow.number}?${paymentNotice} Esta acción no se puede deshacer.`)) return;
+      const previousFlows = dataset.flows;
+      const previousPayments = dataset.payments;
+      dataset.flows = dataset.flows.filter(item => item.id !== flow.id);
+      dataset.payments = dataset.payments.map(payment => payment.flowId === flow.id ? { ...payment, flowId: null } : payment);
+      if (selectedFlowDetailsId === flow.id) {
+        document.getElementById('flowDetailsDialog').close();
+        selectedFlowDetailsId = null;
+      }
+      try {
+        await saveCloudData();
+        render();
+        tell(`Se eliminó el flujo ${flow.number}.${linkedPayments ? ` Se conservaron ${linkedPayments} pagos pendientes.` : ''}`, 'success');
+      } catch (error) {
+        dataset.flows = previousFlows;
+        dataset.payments = previousPayments;
+        render();
+        setStatus('Error al eliminar', 'text-rose-600');
+        tell(`No se eliminó el flujo: ${error.message}`, 'error');
+      }
     }
     function switchTab(name) {
       for (const tab of ['flows','payments','imports']) document.getElementById(`${tab}Tab`).classList.toggle('hidden', tab !== name);
@@ -300,6 +327,10 @@
     });
     document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
     document.getElementById('flowStatusFilter').addEventListener('change', render);
+    document.getElementById('flowsTable').addEventListener('click', event => {
+      const deleteButton = event.target.closest('[data-delete-flow]');
+      if (deleteButton) deleteFlow(deleteButton.dataset.deleteFlow);
+    });
     document.getElementById('flowsTable').addEventListener('dblclick', event => {
       const flowButton = event.target.closest('[data-open-flow]');
       if (flowButton) openFlowDetails(flowButton.dataset.openFlow);
