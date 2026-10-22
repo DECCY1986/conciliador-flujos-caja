@@ -53,7 +53,7 @@
         <button class="tab-button py-4 font-semibold text-slate-500" data-tab="imports">Importar Excel</button>
       </div>
       <div id="flowsTab" class="p-5 space-y-4">
-        <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-lg font-bold">Flujos de caja</h2><p class="text-sm text-slate-500">Finanzas registra el ingreso y su número oficial. Haz doble clic en el número para ver sus pagos y agregar otros.</p></div><button id="newFlowButton" class="btn btn-primary">Crear flujo</button></div>
+        <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-lg font-bold">Flujos de caja</h2><p class="text-sm text-slate-500">Finanzas registra el ingreso y su número oficial. Haz doble clic en el número para ver sus pagos y agregar otros.</p></div><div class="flex flex-wrap gap-2"><button id="closeZeroBalanceFlowsButton" class="btn btn-light" disabled>Cerrar flujos en $0 (0)</button><button id="newFlowButton" class="btn btn-primary">Crear flujo</button></div></div>
         <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3">Nº flujo</th><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Ingreso</th><th class="py-3 pr-3 text-right">Pagado</th><th class="py-3 pr-3 text-right">Saldo</th><th class="py-3">Estado</th></tr></thead><tbody id="flowsTable"></tbody></table></div>
       </div>
       <div id="paymentsTab" class="p-5 hidden space-y-4">
@@ -161,6 +161,10 @@
       document.getElementById('closedCount').textContent = dataset.flows.filter(f => f.status === 'closed').length;
       document.getElementById('unassignedCount').textContent = dataset.payments.filter(p => !p.flowId).length;
       const flows = [...dataset.flows].sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+      const zeroBalanceOpenFlows = dataset.flows.filter(flow => flow.status !== 'closed' && Math.abs(balanceFor(flow)) < 0.5);
+      const closeZeroBalanceButton = document.getElementById('closeZeroBalanceFlowsButton');
+      closeZeroBalanceButton.textContent = `Cerrar flujos en $0 (${zeroBalanceOpenFlows.length})`;
+      closeZeroBalanceButton.disabled = zeroBalanceOpenFlows.length === 0;
       document.getElementById('flowsTable').innerHTML = flows.length ? flows.map(flow => `<tr class="border-b last:border-0"><td class="py-3 pr-3 font-bold"><button type="button" data-open-flow="${escapeHtml(flow.id)}" class="text-sky-800 hover:underline" title="Doble clic para ver pagos">${escapeHtml(flow.number)}</button></td><td class="py-3 pr-3">${escapeHtml(flow.date)}</td><td class="py-3 pr-3">${escapeHtml(flow.description)}</td><td class="py-3 pr-3 text-right">${money(flow.amount)}</td><td class="py-3 pr-3 text-right">${money(paidFor(flow))}</td><td class="py-3 pr-3 text-right font-semibold ${balanceFor(flow) < 0 ? 'text-rose-700' : ''}">${money(balanceFor(flow))}</td><td class="py-3"><span class="rounded-full px-2 py-1 text-xs font-bold ${flow.status === 'closed' ? 'badge-closed' : 'badge-open'}">${flow.status === 'closed' ? 'Cerrado' : 'Abierto'}</span></td></tr>`).join('') : '<tr><td colspan="7" class="py-10 text-center text-slate-500">Aún no hay flujos. Finanzas puede crear el primero.</td></tr>';
       document.getElementById('paymentsTable').innerHTML = dataset.payments.length ? [...dataset.payments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
         const flow = flowById.get(p.flowId);
@@ -299,6 +303,26 @@
       if (flowButton) openFlowDetails(flowButton.dataset.openFlow);
     });
     document.getElementById('closeFlowDetailsButton').addEventListener('click', () => document.getElementById('flowDetailsDialog').close());
+    document.getElementById('closeZeroBalanceFlowsButton').addEventListener('click', async () => {
+      if (!account) return tell('Conecta Microsoft para guardar los estados en OneDrive.', 'error');
+      const flowsToClose = dataset.flows.filter(flow => flow.status !== 'closed' && Math.abs(flowBalance(flow)) < 0.5);
+      if (!flowsToClose.length) return tell('No hay flujos abiertos con saldo de $0.', 'info');
+      const previousStatuses = flowsToClose.map(flow => ({ id: flow.id, status: flow.status }));
+      flowsToClose.forEach(flow => { flow.status = 'closed'; });
+      try {
+        await saveCloudData();
+        render();
+        tell(`Se cerraron ${flowsToClose.length} flujos que tenían saldo de $0.`, 'success');
+      } catch (error) {
+        for (const previous of previousStatuses) {
+          const flow = dataset.flows.find(item => item.id === previous.id);
+          if (flow) flow.status = previous.status;
+        }
+        render();
+        setStatus('Error al guardar', 'text-rose-600');
+        tell(`No se pudieron cerrar los flujos: ${error.message}`, 'error');
+      }
+    });
     document.getElementById('fillNegativeAdjustmentButton').addEventListener('click', () => {
       const flow = dataset.flows.find(item => item.id === selectedFlowDetailsId);
       if (!flow || flowBalance(flow) >= -0.01) return;
