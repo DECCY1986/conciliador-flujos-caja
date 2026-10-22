@@ -461,12 +461,32 @@
       document.getElementById('flowDialog').close(); await persistChange();
     });
     window.assignPayment = async paymentId => {
-      const payment = dataset.payments.find(item => item.id === paymentId); const flowId = document.getElementById(`assign-${paymentId}`).value;
+      if (!account) return tell('Conecta Microsoft antes de asignar un pago.', 'error');
+      const payment = dataset.payments.find(item => item.id === paymentId);
+      if (!payment || payment.flowId) return tell('Este pago ya fue aplicado o no está disponible.', 'error');
+      const flowSelect = document.getElementById(`assign-${paymentId}`);
+      if (!flowSelect) return tell('No se encontró el selector del flujo. Actualiza la página e inténtalo de nuevo.', 'error');
+      const flowId = flowSelect.value;
       if (!flowId) return tell('Selecciona un flujo abierto.', 'error');
-      const flow = dataset.flows.find(item => item.id === flowId); const newBalance = flowBalance(flow) - Number(payment.amount);
+      const flow = dataset.flows.find(item => item.id === flowId);
+      if (!flow || flow.status !== 'open') return tell('El flujo seleccionado ya no está abierto. Actualiza la página e inténtalo de nuevo.', 'error');
+      const newBalance = flowBalance(flow) - Number(payment.amount);
       if (newBalance < 0) return tell(`Este pago supera el saldo del flujo ${flow.number} por ${money(Math.abs(newBalance))}. No se asignó.`, 'error');
-      payment.flowId = flowId; if (newBalance === 0) flow.status = 'closed';
-      await persistChange(); if (newBalance === 0) tell(`Pago aplicado: el flujo ${flow.number} llegó a cero y quedó cerrado.`, 'success');
+      const previousStatus = flow.status;
+      payment.flowId = flowId;
+      if (Math.abs(newBalance) < 0.01) flow.status = 'closed';
+      selectedPaymentIds.delete(paymentId);
+      try {
+        await saveCloudData();
+        render();
+        tell(`Pago asignado al flujo ${flow.number}.${flow.status === 'closed' ? ' El saldo quedó en cero y el flujo se cerró.' : ''}`, 'success');
+      } catch (error) {
+        payment.flowId = null;
+        flow.status = previousStatus;
+        render();
+        setStatus('Error al asignar', 'text-rose-600');
+        tell(`No se asignó el pago: ${error.message}`, 'error');
+      }
     };
     window.deletePendingPayment = async paymentId => {
       if (!account) return tell('Conecta Microsoft antes de eliminar un pago.', 'error');
