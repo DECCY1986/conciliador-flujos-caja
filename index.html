@@ -65,9 +65,14 @@
         <label class="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-sky-400"><span class="font-semibold">Selecciona o arrastra un Excel (.xlsx, .xls, .csv)</span><input id="excelInput" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label>
         <div id="importPreview" class="hidden space-y-3"><div class="flex flex-wrap justify-between items-center gap-3"><span id="previewCount" class="text-sm text-slate-600"></span><button id="confirmImportButton" class="btn btn-primary">Agregar pagos</button></div><div class="overflow-auto max-h-80"><table class="w-full text-sm"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Descripción</th><th class="p-2 text-right">Valor</th></tr></thead><tbody id="previewRows"></tbody></table></div></div>
         <div class="border-t pt-5 space-y-3">
-          <div><h3 class="font-bold">Importar flujos de caja de 2026</h3><p class="text-sm text-slate-500">Usa el archivo de Finanzas con las columnas de número, valor y fecha de ingreso. Se importan los flujos; los gastos no se vuelven a cargar.</p></div>
+          <div><h3 class="font-bold">Importar flujos de caja</h3><p class="text-sm text-slate-500">Usa el archivo maestro de Finanzas con número, valor y fecha de ingreso. Se pueden cargar flujos de 2024 a 2026; los gastos no se vuelven a cargar.</p></div>
           <label class="block border-2 border-dashed border-slate-300 rounded-xl p-6 text-center cursor-pointer hover:border-sky-400"><span class="font-semibold">Seleccionar Excel de flujos (.xlsx o .xls)</span><input id="flowExcelInput" type="file" accept=".xlsx,.xls" class="hidden"></label>
           <div id="flowImportPreview" class="hidden space-y-3"><div class="flex flex-wrap justify-between items-center gap-3"><span id="flowPreviewCount" class="text-sm text-slate-600"></span><button id="confirmFlowImportButton" class="btn btn-primary">Agregar flujos</button></div><div class="overflow-auto max-h-80"><table class="w-full text-sm"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-2 text-left">Nº flujo</th><th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Descripción</th><th class="p-2 text-right">Ingreso</th></tr></thead><tbody id="flowPreviewRows"></tbody></table></div></div>
+        </div>
+        <div class="border-t pt-5 space-y-3">
+          <div><h3 class="font-bold">Importar gastos y asignarlos por número de flujo</h3><p class="text-sm text-slate-500">Selecciona la tabla con número de flujo, gasto, valor, tipo y fecha. Los gastos se vinculan al flujo del mismo número.</p></div>
+          <label class="block border-2 border-dashed border-slate-300 rounded-xl p-6 text-center cursor-pointer hover:border-sky-400"><span class="font-semibold">Seleccionar Excel de gastos (.xlsx o .xls)</span><input id="expenseExcelInput" type="file" accept=".xlsx,.xls" class="hidden"></label>
+          <div id="expenseImportPreview" class="hidden space-y-3"><div id="expensePreviewCount" class="text-sm text-slate-600"></div><div class="flex justify-end"><button id="confirmExpenseImportButton" class="btn btn-primary">Importar y asignar gastos</button></div><div class="overflow-auto max-h-80"><table class="w-full text-sm"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-2 text-left">Nº flujo</th><th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Gasto</th><th class="p-2 text-right">Valor</th><th class="p-2 text-left">Resultado</th></tr></thead><tbody id="expensePreviewRows"></tbody></table></div></div>
         </div>
       </div>
     </section>
@@ -126,6 +131,7 @@
     let dataETag = null;
     let pendingImport = [];
     let pendingFlows = [];
+    let pendingExpensePlan = null;
 
     const money = value => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value || 0);
     const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
@@ -281,6 +287,21 @@
       if (match) { const year = match[3].length === 2 ? `20${match[3]}` : match[3]; return `${year}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}`; }
       const date = new Date(text); return isNaN(date) ? new Date().toISOString().slice(0,10) : date.toISOString().slice(0,10);
     }
+    function parseStrictExcelDate(value) {
+      if (value instanceof Date && !isNaN(value)) return value.toISOString().slice(0,10);
+      if (typeof value === 'number') { const date = XLSX.SSF.parse_date_code(value); if (date) return `${date.y}-${String(date.m).padStart(2,'0')}-${String(date.d).padStart(2,'0')}`; }
+      const text = String(value ?? '').trim();
+      let match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (match) {
+        const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+        return date.getUTCFullYear() === Number(match[1]) && date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[3]) ? `${match[1]}-${match[2].padStart(2,'0')}-${match[3].padStart(2,'0')}` : null;
+      }
+      match = text.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+      if (!match) return null;
+      const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+      const date = new Date(Date.UTC(Number(year), Number(match[2]) - 1, Number(match[1])));
+      return date.getUTCFullYear() === Number(year) && date.getUTCMonth() === Number(match[2]) - 1 && date.getUTCDate() === Number(match[1]) ? `${year}-${match[2].padStart(2,'0')}-${match[1].padStart(2,'0')}` : null;
+    }
     document.getElementById('excelInput').addEventListener('change', async event => {
       const file = event.target.files[0]; if (!file) return;
       try {
@@ -325,9 +346,9 @@
         let ignoredYear = 0;
         for (const row of rows.slice(1)) {
           const number = String(row[flowIndex] ?? '').trim();
-          const date = parseExcelDate(row[dateIndex]);
+          const date = parseStrictExcelDate(row[dateIndex]);
           const amount = parseAmount(row[amountIndex]);
-          if (!number || !amount || !date || date.slice(0,4) !== '2026') { if (date && date.slice(0,4) !== '2026') ignoredYear++; continue; }
+          if (!number || !amount || !date || !['2024','2025','2026'].includes(date.slice(0,4))) { if (date && !['2024','2025','2026'].includes(date.slice(0,4))) ignoredYear++; continue; }
           const description = descriptionIndex >= 0 ? String(row[descriptionIndex] ?? '').trim() : '';
           const existing = grouped.get(number) || { id: crypto.randomUUID(), number, date, description: '', amount, dates: new Set(), amounts: new Set(), status: 'open', createdAt: new Date().toISOString() };
           existing.dates.add(date); existing.amounts.add(amount);
@@ -338,9 +359,9 @@
         if (conflicts.length) throw new Error(`Hay ${conflicts.length} número(s) de flujo con fechas o valores diferentes: ${conflicts.map(flow => flow.number).join(', ')}. Corrige esos números en Excel antes de importar.`);
         const existingNumbers = new Set(dataset.flows.map(flow => String(flow.number).trim().toLowerCase()));
         const alreadyPresent = [...grouped.values()].filter(flow => existingNumbers.has(flow.number.toLowerCase())).length;
-        pendingFlows = [...grouped.values()].filter(flow => !existingNumbers.has(flow.number.toLowerCase())).map(({ dates, amounts, ...flow }) => ({ ...flow, description: flow.description || 'Ingreso importado 2026' }));
-        if (!grouped.size) throw new Error('No encontré flujos con ingreso fechado en 2026.');
-        document.getElementById('flowPreviewCount').textContent = `${pendingFlows.length} flujos nuevos · ${alreadyPresent} ya estaban cargados · ${ignoredYear} filas de otros años ignoradas (${file.name})`;
+        pendingFlows = [...grouped.values()].filter(flow => !existingNumbers.has(flow.number.toLowerCase())).map(({ dates, amounts, ...flow }) => ({ ...flow, description: flow.description || 'Ingreso importado' }));
+        if (!grouped.size) throw new Error('No encontré flujos con ingreso fechado entre 2024 y 2026.');
+        document.getElementById('flowPreviewCount').textContent = `${pendingFlows.length} flujos nuevos · ${alreadyPresent} ya estaban cargados · ${ignoredYear} filas de años fuera de 2024–2026 ignoradas (${file.name})`;
         document.getElementById('flowPreviewRows').innerHTML = pendingFlows.slice(0,100).map(flow => `<tr class="border-b"><td class="p-2 font-semibold">${escapeHtml(flow.number)}</td><td class="p-2">${escapeHtml(flow.date)}</td><td class="p-2">${escapeHtml(flow.description)}</td><td class="p-2 text-right">${money(flow.amount)}</td></tr>`).join('') + (pendingFlows.length > 100 ? `<tr><td colspan="4" class="p-2 text-center text-slate-500">Vista previa de los primeros 100; se importarán ${pendingFlows.length} flujos.</td></tr>` : '');
         document.getElementById('confirmFlowImportButton').disabled = !pendingFlows.length;
         document.getElementById('confirmFlowImportButton').classList.toggle('opacity-50', !pendingFlows.length);
@@ -359,13 +380,114 @@
         document.getElementById('flowImportPreview').classList.add('hidden');
         document.getElementById('flowExcelInput').value = '';
         render();
-        tell(`Se importaron ${importedCount} flujos de 2026 a OneDrive. Los pagos existentes siguen sin asignar.`, 'success');
+        tell(`Se importaron ${importedCount} flujos a OneDrive. Los pagos existentes siguen sin asignar.`, 'success');
         switchTab('flows');
       } catch (error) {
         dataset.flows = previousFlows;
         render();
         setStatus('Error al importar flujos', 'text-rose-600');
         tell(`No se importaron los flujos: ${error.message}`, 'error');
+      }
+    });
+    document.getElementById('expenseExcelInput').addEventListener('change', async event => {
+      const file = event.target.files[0]; if (!file) return;
+      try {
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+        const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: '' });
+        if (!rows.length) throw new Error('El archivo está vacío.');
+        const headers = rows[0].map(normalizedHeader);
+        const flowIndex = headers.findIndex(header => /numero.*flujo/.test(header));
+        const expenseIndex = headers.findIndex(header => header === 'gasto' || /descripcion.*gasto/.test(header));
+        const amountIndex = headers.findIndex(header => header === 'valor' || /valor.*gasto/.test(header));
+        const categoryIndex = headers.findIndex(header => /tipo.*gasto/.test(header));
+        const dateIndex = headers.findIndex(header => /fecha.*gasto/.test(header));
+        if ([flowIndex, expenseIndex, amountIndex, dateIndex].some(index => index < 0)) throw new Error('No encontré las columnas Número de flujo, Gasto, Valor y Fecha del gasto.');
+        const flowByNumber = new Map(dataset.flows.map(flow => [String(flow.number).trim().toLowerCase(), flow]));
+        const expenseRows = rows.slice(1).map(row => {
+          const flowNumber = String(row[flowIndex] ?? '').trim();
+          const amount = parseAmount(row[amountIndex]);
+          const description = String(row[expenseIndex] ?? '').trim();
+          if (!flowNumber || !description || amount <= 0) return null;
+          const date = parseExcelDate(row[dateIndex]);
+          const flow = flowByNumber.get(flowNumber.toLowerCase());
+          return { flowNumber, flowId: flow?.id || null, date, description, amount, category: categoryIndex >= 0 ? String(row[categoryIndex] ?? '').trim() : '', sourceFile: file.name, createdAt: new Date().toISOString() };
+        }).filter(Boolean);
+        if (!expenseRows.length) throw new Error('No encontré gastos con número de flujo y valor mayor que cero.');
+        const keyFor = payment => `${payment.date}|${normalizedHeader(payment.description)}|${Number(payment.amount).toFixed(2)}`;
+        const sourceGroups = new Map();
+        for (const row of expenseRows) {
+          const key = keyFor(row); const group = sourceGroups.get(key) || []; group.push(row); sourceGroups.set(key, group);
+        }
+        const existingGroups = new Map();
+        for (const payment of dataset.payments) {
+          const key = keyFor(payment); const group = existingGroups.get(key) || []; group.push(payment); existingGroups.set(key, group);
+        }
+        const additions = []; const assignments = []; const outcomes = new Map();
+        let alreadyLinked = 0; let duplicateConflicts = 0;
+        for (const [key, items] of sourceGroups) {
+          const current = [...(existingGroups.get(key) || [])];
+          const missing = items.some(item => !item.flowId);
+          if (missing) { items.forEach(item => outcomes.set(item, 'Flujo no encontrado')); continue; }
+          for (const item of items) {
+            const exactIndex = current.findIndex(payment => payment.flowId === item.flowId);
+            if (exactIndex >= 0) { current.splice(exactIndex, 1); alreadyLinked++; outcomes.set(item, 'Ya estaba asignado'); continue; }
+            const unassignedIndex = current.findIndex(payment => !payment.flowId);
+            if (unassignedIndex >= 0) {
+              const payment = current.splice(unassignedIndex, 1)[0];
+              assignments.push({ paymentId: payment.id, flowId: item.flowId, flowNumber: item.flowNumber, category: item.category });
+              outcomes.set(item, 'Se vinculará el pago existente'); continue;
+            }
+            const otherFlowIndex = current.findIndex(payment => payment.flowId);
+            if (otherFlowIndex >= 0) { current.splice(otherFlowIndex, 1); duplicateConflicts++; outcomes.set(item, 'Pago ya vinculado a otro flujo'); continue; }
+            additions.push({ ...item, id: crypto.randomUUID() });
+            outcomes.set(item, 'Se agregará asignado');
+          }
+        }
+        const missingNumbers = [...new Set(expenseRows.filter(row => !row.flowId).map(row => row.flowNumber))];
+        const plannedAmounts = new Map();
+        for (const addition of additions) plannedAmounts.set(addition.flowId, (plannedAmounts.get(addition.flowId) || 0) + Number(addition.amount));
+        for (const assignment of assignments) {
+          const payment = dataset.payments.find(item => item.id === assignment.paymentId);
+          plannedAmounts.set(assignment.flowId, (plannedAmounts.get(assignment.flowId) || 0) + Number(payment?.amount || 0));
+        }
+        const negativeBalances = [...plannedAmounts.entries()].filter(([flowId, amount]) => { const flow = dataset.flows.find(item => item.id === flowId); return flow && flowBalance(flow) - amount < -0.01; }).map(([flowId]) => dataset.flows.find(item => item.id === flowId)?.number).filter(Boolean);
+        pendingExpensePlan = { additions, assignments, alreadyLinked, duplicateConflicts, missingNumbers, negativeBalances, sourceRows: expenseRows };
+        const outcomeRows = expenseRows.slice(0,100).map(row => `<tr class="border-b"><td class="p-2 font-semibold">${escapeHtml(row.flowNumber)}</td><td class="p-2">${escapeHtml(row.date)}</td><td class="p-2">${escapeHtml(row.description)}</td><td class="p-2 text-right">${money(row.amount)}</td><td class="p-2 ${outcomes.get(row)?.includes('no encontrado') || outcomes.get(row)?.includes('ambigua') || outcomes.get(row)?.includes('otro flujo') ? 'text-rose-700' : 'text-emerald-700'}">${escapeHtml(outcomes.get(row) || '')}</td></tr>`).join('');
+        document.getElementById('expensePreviewRows').innerHTML = outcomeRows + (expenseRows.length > 100 ? `<tr><td colspan="5" class="p-2 text-center text-slate-500">Vista previa de los primeros 100 de ${expenseRows.length} gastos.</td></tr>` : '');
+        document.getElementById('expensePreviewCount').textContent = `${expenseRows.length} gastos leídos · ${additions.length} nuevos · ${assignments.length} pagos existentes por vincular · ${alreadyLinked} ya asignados · ${missingNumbers.length} números de flujo no encontrados (${missingNumbers.slice(0,8).join(', ')}) · ${duplicateConflicts} pagos ya vinculados a otro flujo · ${negativeBalances.length} flujos quedarían con saldo negativo.`;
+        const canImport = additions.length + assignments.length > 0 && missingNumbers.length === 0 && duplicateConflicts === 0;
+        const button = document.getElementById('confirmExpenseImportButton'); button.disabled = !canImport; button.classList.toggle('opacity-50', !canImport);
+        document.getElementById('expenseImportPreview').classList.remove('hidden');
+      } catch (error) { pendingExpensePlan = null; document.getElementById('expenseImportPreview').classList.add('hidden'); tell(error.message, 'error'); }
+    });
+    document.getElementById('confirmExpenseImportButton').addEventListener('click', async () => {
+      if (!pendingExpensePlan) return;
+      if (!account || !folderLinkValue) return tell('Conecta Microsoft y carga la carpeta compartida antes de importar gastos.', 'error');
+      const previousPayments = dataset.payments.map(payment => ({ ...payment }));
+      const previousFlows = dataset.flows.map(flow => ({ ...flow }));
+      const importedCount = pendingExpensePlan.additions.length;
+      const linkedCount = pendingExpensePlan.assignments.length;
+      const negativeCount = pendingExpensePlan.negativeBalances.length;
+      try {
+        for (const assignment of pendingExpensePlan.assignments) {
+          const payment = dataset.payments.find(item => item.id === assignment.paymentId);
+          if (payment) { payment.flowId = assignment.flowId; payment.sourceFlowNumber = assignment.flowNumber; payment.category = assignment.category; }
+        }
+        dataset.payments.push(...pendingExpensePlan.additions);
+        for (const flow of dataset.flows) {
+          if (flow.status !== 'closed' && Math.abs(flowBalance(flow)) < 0.01) flow.status = 'closed';
+        }
+        await saveCloudData();
+        pendingExpensePlan = null;
+        document.getElementById('expenseImportPreview').classList.add('hidden');
+        document.getElementById('expenseExcelInput').value = '';
+        render();
+        tell(`Importación guardada: ${importedCount} gastos nuevos y ${linkedCount} pagos existentes vinculados a su flujo.${negativeCount ? ` Aviso: ${negativeCount} flujos quedaron con saldo negativo; revisa los datos importados.` : ''}`, negativeCount ? 'info' : 'success');
+        switchTab('payments');
+      } catch (error) {
+        dataset.payments = previousPayments; dataset.flows = previousFlows; render();
+        setStatus('Error al importar gastos', 'text-rose-600');
+        tell(`No se guardaron los cambios: ${error.message}`, 'error');
       }
     });
     document.getElementById('folderLink').value = folderLinkValue;
