@@ -61,9 +61,9 @@
         <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Valor</th><th class="py-3 pr-3">Nº flujo</th><th class="py-3">Acción</th></tr></thead><tbody id="paymentsTable"></tbody></table></div>
       </div>
       <div id="importsTab" class="p-5 hidden space-y-4">
-        <div><h2 class="text-lg font-bold">Importar pagos desde Excel</h2><p class="text-sm text-slate-500">Importa pagos con fecha, descripción y valor. Puedes asignar los flujos después de revisar los registros.</p></div>
+        <div><h2 class="text-lg font-bold">Importar pagos desde Excel</h2><p class="text-sm text-slate-500">Si el Excel incluye “Número de flujo de caja”, los pagos se vinculan automáticamente. Primero carga los flujos correspondientes. Si ya importaste esos pagos como pendientes, usa “Importar gastos y asignarlos por número de flujo” para vincularlos sin volverlos a agregar.</p></div>
         <label class="block border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:border-sky-400"><span class="font-semibold">Selecciona o arrastra un Excel (.xlsx, .xls, .csv)</span><input id="excelInput" type="file" accept=".xlsx,.xls,.csv" class="hidden"></label>
-        <div id="importPreview" class="hidden space-y-3"><div class="flex flex-wrap justify-between items-center gap-3"><span id="previewCount" class="text-sm text-slate-600"></span><button id="confirmImportButton" class="btn btn-primary">Agregar pagos</button></div><div class="overflow-auto max-h-80"><table class="w-full text-sm"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Descripción</th><th class="p-2 text-right">Valor</th></tr></thead><tbody id="previewRows"></tbody></table></div></div>
+        <div id="importPreview" class="hidden space-y-3"><div class="flex flex-wrap justify-between items-center gap-3"><span id="previewCount" class="text-sm text-slate-600"></span><button id="confirmImportButton" class="btn btn-primary">Agregar pagos</button></div><div class="overflow-auto max-h-80"><table class="w-full text-sm"><thead class="sticky top-0 bg-slate-100"><tr><th class="p-2 text-left">Fecha</th><th class="p-2 text-left">Descripción</th><th class="p-2 text-right">Valor</th><th class="p-2 text-left">Nº flujo / resultado</th></tr></thead><tbody id="previewRows"></tbody></table></div></div>
         <div class="border-t pt-5 space-y-3">
           <div><h3 class="font-bold">Importar flujos de caja</h3><p class="text-sm text-slate-500">Usa el archivo maestro de Finanzas con número, valor y fecha de ingreso. Se pueden cargar flujos de 2024 a 2026; los gastos no se vuelven a cargar.</p></div>
           <label class="block border-2 border-dashed border-slate-300 rounded-xl p-6 text-center cursor-pointer hover:border-sky-400"><span class="font-semibold">Seleccionar Excel de flujos (.xlsx o .xls)</span><input id="flowExcelInput" type="file" accept=".xlsx,.xls" class="hidden"></label>
@@ -272,6 +272,7 @@
     };
 
     function normalizedHeader(value) { return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
+    function normalizedFlowNumber(value) { const number = String(value ?? '').trim(); return /^\d+\.0+$/.test(number) ? number.replace(/\.0+$/, '') : number.toLowerCase(); }
     function parseAmount(value) {
       if (typeof value === 'number') return value;
       let text = String(value ?? '').replace(/[^\d,.-]/g, '').trim();
@@ -310,8 +311,9 @@
         if (rows.length < 2) throw new Error('El Excel debe tener encabezados y al menos una fila de pagos.');
         const headers = rows[0].map(normalizedHeader);
         let dateIndex = headers.findIndex(h => /fecha|date/.test(h));
-        let descIndex = headers.findIndex(h => /descripcion|concepto|detalle|proveedor|beneficiario/.test(h));
+        let descIndex = headers.findIndex(h => /descripcion|concepto|detalle|proveedor|beneficiario|^gasto$/.test(h));
         let amountIndex = headers.findIndex(h => /valor|monto|importe|total|amount|pago/.test(h));
+        const flowIndex = headers.findIndex(h => /numero.*flujo/.test(h));
         if (dateIndex < 0 || descIndex < 0 || amountIndex < 0) {
           const sample = rows[1] || [];
           if (dateIndex < 0) dateIndex = sample.findIndex(value => (value instanceof Date) || /\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(String(value)));
@@ -319,10 +321,26 @@
           if (descIndex < 0) descIndex = sample.findIndex((value, index) => index !== dateIndex && index !== amountIndex && String(value).trim().length > 2);
         }
         if ([dateIndex, descIndex, amountIndex].some(index => index < 0)) throw new Error('No pude identificar fecha, descripción y valor. Usa encabezados como Fecha, Descripción y Valor.');
-        pendingImport = rows.slice(1).map(row => ({ id: crypto.randomUUID(), date: parseExcelDate(row[dateIndex]), description: String(row[descIndex] || '').trim() || 'Pago importado', amount: parseAmount(row[amountIndex]), flowId: null, sourceFile: file.name, createdAt: new Date().toISOString() })).filter(payment => payment.amount > 0);
+        const flowsByNumber = new Map(dataset.flows.map(flow => [normalizedFlowNumber(flow.number), flow]));
+        pendingImport = rows.slice(1).map(row => {
+          const flowNumber = flowIndex >= 0 ? String(row[flowIndex] ?? '').trim() : '';
+          const flow = flowNumber ? flowsByNumber.get(normalizedFlowNumber(flowNumber)) : null;
+          return { id: crypto.randomUUID(), date: parseExcelDate(row[dateIndex]), description: String(row[descIndex] || '').trim() || 'Pago importado', amount: parseAmount(row[amountIndex]), flowId: flow?.id || null, sourceFlowNumber: flowNumber || null, sourceFile: file.name, createdAt: new Date().toISOString() };
+        }).filter(payment => payment.amount > 0);
         if (!pendingImport.length) throw new Error('No encontré pagos con valor mayor que cero.');
-        document.getElementById('previewCount').textContent = `${pendingImport.length} pagos listos para revisar (${file.name})`;
-        document.getElementById('previewRows').innerHTML = pendingImport.slice(0,100).map(payment => `<tr class="border-b"><td class="p-2">${escapeHtml(payment.date)}</td><td class="p-2">${escapeHtml(payment.description)}</td><td class="p-2 text-right">${money(payment.amount)}</td></tr>`).join('') + (pendingImport.length > 100 ? `<tr><td colspan="3" class="p-2 text-center text-slate-500">Vista previa de los primeros 100; se importarán ${pendingImport.length} pagos.</td></tr>` : '');
+        const hasFlowColumn = flowIndex >= 0;
+        const unmatchedPayments = pendingImport.filter(payment => !payment.flowId);
+        const missingFlowNumbers = [...new Set(unmatchedPayments.map(payment => payment.sourceFlowNumber || '(vacío)'))];
+        const matchedCount = pendingImport.filter(payment => payment.flowId).length;
+        document.getElementById('previewCount').textContent = `${pendingImport.length} pagos listos · ${matchedCount} vinculados a un flujo · ${hasFlowColumn ? `${unmatchedPayments.length} sin flujo válido${missingFlowNumbers.length ? ` (${missingFlowNumbers.slice(0,8).join(', ')})` : ''}` : 'el archivo no incluye número de flujo'} (${file.name})`;
+        document.getElementById('previewRows').innerHTML = pendingImport.slice(0,100).map(payment => {
+          const flow = dataset.flows.find(item => item.id === payment.flowId);
+          const result = flow ? `Flujo ${flow.number}` : hasFlowColumn ? (payment.sourceFlowNumber ? 'Flujo no encontrado' : 'Número vacío') : 'Sin número de flujo';
+          return `<tr class="border-b"><td class="p-2">${escapeHtml(payment.date)}</td><td class="p-2">${escapeHtml(payment.description)}</td><td class="p-2 text-right">${money(payment.amount)}</td><td class="p-2 ${payment.sourceFlowNumber && !payment.flowId ? 'text-rose-700' : ''}">${escapeHtml(result)}</td></tr>`;
+        }).join('') + (pendingImport.length > 100 ? `<tr><td colspan="4" class="p-2 text-center text-slate-500">Vista previa de los primeros 100; se importarán ${pendingImport.length} pagos.</td></tr>` : '');
+        const importButton = document.getElementById('confirmImportButton');
+        importButton.disabled = hasFlowColumn && unmatchedPayments.length > 0;
+        importButton.classList.toggle('opacity-50', importButton.disabled);
         document.getElementById('importPreview').classList.remove('hidden');
       } catch (error) { tell(error.message, 'error'); pendingImport = []; }
     });
@@ -402,14 +420,14 @@
         const categoryIndex = headers.findIndex(header => /tipo.*gasto/.test(header));
         const dateIndex = headers.findIndex(header => /fecha.*gasto/.test(header));
         if ([flowIndex, expenseIndex, amountIndex, dateIndex].some(index => index < 0)) throw new Error('No encontré las columnas Número de flujo, Gasto, Valor y Fecha del gasto.');
-        const flowByNumber = new Map(dataset.flows.map(flow => [String(flow.number).trim().toLowerCase(), flow]));
+        const flowByNumber = new Map(dataset.flows.map(flow => [normalizedFlowNumber(flow.number), flow]));
         const expenseRows = rows.slice(1).map(row => {
           const flowNumber = String(row[flowIndex] ?? '').trim();
           const amount = parseAmount(row[amountIndex]);
           const description = String(row[expenseIndex] ?? '').trim();
           if (!flowNumber || !description || amount <= 0) return null;
           const date = parseExcelDate(row[dateIndex]);
-          const flow = flowByNumber.get(flowNumber.toLowerCase());
+          const flow = flowByNumber.get(normalizedFlowNumber(flowNumber));
           return { flowNumber, flowId: flow?.id || null, date, description, amount, category: categoryIndex >= 0 ? String(row[categoryIndex] ?? '').trim() : '', sourceFile: file.name, createdAt: new Date().toISOString() };
         }).filter(Boolean);
         if (!expenseRows.length) throw new Error('No encontré gastos con número de flujo y valor mayor que cero.');
