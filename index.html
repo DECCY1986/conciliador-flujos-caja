@@ -53,7 +53,7 @@
         <button class="tab-button py-4 font-semibold text-slate-500" data-tab="imports">Importar Excel</button>
       </div>
       <div id="flowsTab" class="p-5 space-y-4">
-        <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-lg font-bold">Flujos de caja</h2><p class="text-sm text-slate-500">Finanzas registra el ingreso y su número oficial. Haz doble clic en el número para ver sus pagos y agregar otros.</p></div><div class="flex flex-wrap gap-2"><button id="closeZeroBalanceFlowsButton" class="btn btn-light" disabled>Cerrar flujos en $0 (0)</button><button id="newFlowButton" class="btn btn-primary">Crear flujo</button></div></div>
+        <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-lg font-bold">Flujos de caja</h2><p class="text-sm text-slate-500">Finanzas registra el ingreso y su número oficial. Haz doble clic en el número para ver sus pagos y agregar otros.</p></div><div class="flex flex-wrap items-center gap-2"><label for="flowStatusFilter" class="text-sm font-semibold">Mostrar:</label><select id="flowStatusFilter" class="field w-auto"><option value="all">Todos</option><option value="open">Abiertos</option><option value="closed">Cerrados</option></select><button id="closeZeroBalanceFlowsButton" class="btn btn-light" disabled>Cerrar flujos en $0 (0)</button><button id="newFlowButton" class="btn btn-primary">Crear flujo</button></div></div>
         <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3">Nº flujo</th><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Ingreso</th><th class="py-3 pr-3 text-right">Pagado</th><th class="py-3 pr-3 text-right">Saldo</th><th class="py-3">Estado</th></tr></thead><tbody id="flowsTable"></tbody></table></div>
       </div>
       <div id="paymentsTab" class="p-5 hidden space-y-4">
@@ -160,12 +160,13 @@
       document.getElementById('openBalance').textContent = money(openFlows.reduce((sum, flow) => sum + balanceFor(flow), 0));
       document.getElementById('closedCount').textContent = dataset.flows.filter(f => f.status === 'closed').length;
       document.getElementById('unassignedCount').textContent = dataset.payments.filter(p => !p.flowId).length;
-      const flows = [...dataset.flows].sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+      const statusFilter = document.getElementById('flowStatusFilter').value;
+      const flows = [...dataset.flows].filter(flow => statusFilter === 'all' || flow.status === statusFilter).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
       const zeroBalanceOpenFlows = dataset.flows.filter(flow => flow.status !== 'closed' && Math.abs(balanceFor(flow)) < 0.5);
       const closeZeroBalanceButton = document.getElementById('closeZeroBalanceFlowsButton');
       closeZeroBalanceButton.textContent = `Cerrar flujos en $0 (${zeroBalanceOpenFlows.length})`;
       closeZeroBalanceButton.disabled = zeroBalanceOpenFlows.length === 0;
-      document.getElementById('flowsTable').innerHTML = flows.length ? flows.map(flow => `<tr class="border-b last:border-0"><td class="py-3 pr-3 font-bold"><button type="button" data-open-flow="${escapeHtml(flow.id)}" class="text-sky-800 hover:underline" title="Doble clic para ver pagos">${escapeHtml(flow.number)}</button></td><td class="py-3 pr-3">${escapeHtml(flow.date)}</td><td class="py-3 pr-3">${escapeHtml(flow.description)}</td><td class="py-3 pr-3 text-right">${money(flow.amount)}</td><td class="py-3 pr-3 text-right">${money(paidFor(flow))}</td><td class="py-3 pr-3 text-right font-semibold ${balanceFor(flow) < 0 ? 'text-rose-700' : ''}">${money(balanceFor(flow))}</td><td class="py-3"><span class="rounded-full px-2 py-1 text-xs font-bold ${flow.status === 'closed' ? 'badge-closed' : 'badge-open'}">${flow.status === 'closed' ? 'Cerrado' : 'Abierto'}</span></td></tr>`).join('') : '<tr><td colspan="7" class="py-10 text-center text-slate-500">Aún no hay flujos. Finanzas puede crear el primero.</td></tr>';
+      document.getElementById('flowsTable').innerHTML = flows.length ? flows.map(flow => `<tr class="border-b last:border-0"><td class="py-3 pr-3 font-bold"><button type="button" data-open-flow="${escapeHtml(flow.id)}" class="text-sky-800 hover:underline" title="Doble clic para ver pagos">${escapeHtml(flow.number)}</button></td><td class="py-3 pr-3">${escapeHtml(flow.date)}</td><td class="py-3 pr-3">${escapeHtml(flow.description)}</td><td class="py-3 pr-3 text-right">${money(flow.amount)}</td><td class="py-3 pr-3 text-right">${money(paidFor(flow))}</td><td class="py-3 pr-3 text-right font-semibold ${balanceFor(flow) < 0 ? 'text-rose-700' : ''}">${money(balanceFor(flow))}</td><td class="py-3"><span class="rounded-full px-2 py-1 text-xs font-bold ${flow.status === 'closed' ? 'badge-closed' : 'badge-open'}">${flow.status === 'closed' ? 'Cerrado' : 'Abierto'}</span></td></tr>`).join('') : `<tr><td colspan="7" class="py-10 text-center text-slate-500">${statusFilter === 'all' ? 'Aún no hay flujos. Finanzas puede crear el primero.' : `No hay flujos ${statusFilter === 'open' ? 'abiertos' : 'cerrados'}.`}</td></tr>`;
       document.getElementById('paymentsTable').innerHTML = dataset.payments.length ? [...dataset.payments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
         const flow = flowById.get(p.flowId);
         const choices = !p.flowId ? openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('') : '';
@@ -298,6 +299,7 @@
       else tell('Vínculo guardado en este navegador. Pulsa “Conectar Microsoft” para validar acceso.', 'success');
     });
     document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
+    document.getElementById('flowStatusFilter').addEventListener('change', render);
     document.getElementById('flowsTable').addEventListener('dblclick', event => {
       const flowButton = event.target.closest('[data-open-flow]');
       if (flowButton) openFlowDetails(flowButton.dataset.openFlow);
