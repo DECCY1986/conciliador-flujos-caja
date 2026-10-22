@@ -58,7 +58,7 @@
       </div>
       <div id="paymentsTab" class="p-5 hidden space-y-4">
         <div><h2 class="text-lg font-bold">Pagos registrados</h2><p class="text-sm text-slate-500">Asigna los pagos pendientes a un flujo abierto. Cada asignación descuenta el saldo.</p></div>
-        <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Valor</th><th class="py-3 pr-3">Nº flujo</th><th class="py-3">Acción</th></tr></thead><tbody id="paymentsTable"></tbody></table></div>
+        <div class="flex justify-end"><button id="deleteSelectedPaymentsButton" class="btn border border-rose-300 text-rose-700 hover:bg-rose-50" disabled>Eliminar seleccionados (0)</button></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3"><input id="selectVisiblePayments" type="checkbox" aria-label="Seleccionar pagos pendientes visibles"></th><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Valor</th><th class="py-3 pr-3">Nº flujo</th><th class="py-3">Acción</th></tr></thead><tbody id="paymentsTable"></tbody></table></div>
       </div>
       <div id="importsTab" class="p-5 hidden space-y-4">
         <div><h2 class="text-lg font-bold">Importar pagos desde Excel</h2><p class="text-sm text-slate-500">Si el Excel incluye “Número de flujo de caja”, los pagos se vinculan automáticamente. Primero carga los flujos correspondientes. Si ya importaste esos pagos como pendientes, usa “Importar gastos y asignarlos por número de flujo” para vincularlos sin volverlos a agregar.</p></div>
@@ -132,6 +132,7 @@
     let account = null;
     let dataset = { version: 1, flows: [], payments: [] };
     const selectedFlowIds = new Set();
+    const selectedPaymentIds = new Set();
     let folderLinkValue = localStorage.getItem('cashflow_folder_link') || '';
     let folderDrive = null;
     let folderItemId = null;
@@ -176,10 +177,18 @@
       deleteSelectedButton.textContent = `Eliminar seleccionados (${selectedFlowIds.size})`;
       deleteSelectedButton.disabled = selectedFlowIds.size === 0;
       const pendingPayments = dataset.payments.filter(payment => !payment.flowId);
+      for (const id of selectedPaymentIds) if (!pendingPayments.some(payment => payment.id === id)) selectedPaymentIds.delete(id);
       document.getElementById('paymentsTable').innerHTML = pendingPayments.length ? [...pendingPayments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
         const choices = openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('');
-        return `<tr class="border-b last:border-0"><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3"><span class="text-amber-700">Pendiente</span></td><td class="py-3"><div class="flex flex-wrap gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button><button class="btn border border-rose-300 text-rose-700 hover:bg-rose-50 py-1.5" onclick="deletePendingPayment('${escapeHtml(p.id)}')">Eliminar</button></div></td></tr>`;
-      }).join('') : '<tr><td colspan="5" class="py-10 text-center text-slate-500">No hay pagos pendientes de asignar.</td></tr>';
+        return `<tr class="border-b last:border-0"><td class="py-3 pr-3"><input type="checkbox" data-select-payment="${escapeHtml(p.id)}" aria-label="Seleccionar pago ${escapeHtml(p.description)}" ${selectedPaymentIds.has(p.id) ? 'checked' : ''}></td><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3"><span class="text-amber-700">Pendiente</span></td><td class="py-3"><div class="flex flex-wrap gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button><button class="btn border border-rose-300 text-rose-700 hover:bg-rose-50 py-1.5" onclick="deletePendingPayment('${escapeHtml(p.id)}')">Eliminar</button></div></td></tr>`;
+      }).join('') : '<tr><td colspan="6" class="py-10 text-center text-slate-500">No hay pagos pendientes de asignar.</td></tr>';
+      const selectedVisiblePaymentCount = pendingPayments.filter(payment => selectedPaymentIds.has(payment.id)).length;
+      const selectVisiblePayments = document.getElementById('selectVisiblePayments');
+      selectVisiblePayments.checked = pendingPayments.length > 0 && selectedVisiblePaymentCount === pendingPayments.length;
+      selectVisiblePayments.indeterminate = selectedVisiblePaymentCount > 0 && selectedVisiblePaymentCount < pendingPayments.length;
+      const deleteSelectedPaymentsButton = document.getElementById('deleteSelectedPaymentsButton');
+      deleteSelectedPaymentsButton.textContent = `Eliminar seleccionados (${selectedPaymentIds.size})`;
+      deleteSelectedPaymentsButton.disabled = selectedPaymentIds.size === 0;
     }
     function renderFlowDetails() {
       const flow = dataset.flows.find(item => item.id === selectedFlowDetailsId);
@@ -359,6 +368,18 @@
       render();
     });
     document.getElementById('deleteSelectedFlowsButton').addEventListener('click', () => deleteFlows([...selectedFlowIds]));
+    document.getElementById('selectVisiblePayments').addEventListener('change', event => {
+      const pendingPayments = dataset.payments.filter(payment => !payment.flowId);
+      pendingPayments.forEach(payment => event.target.checked ? selectedPaymentIds.add(payment.id) : selectedPaymentIds.delete(payment.id));
+      render();
+    });
+    document.getElementById('paymentsTable').addEventListener('change', event => {
+      const selection = event.target.closest('[data-select-payment]');
+      if (!selection) return;
+      selection.checked ? selectedPaymentIds.add(selection.dataset.selectPayment) : selectedPaymentIds.delete(selection.dataset.selectPayment);
+      render();
+    });
+    document.getElementById('deleteSelectedPaymentsButton').addEventListener('click', () => deleteSelectedPendingPayments());
     document.getElementById('flowsTable').addEventListener('dblclick', event => {
       const flowButton = event.target.closest('[data-open-flow]');
       if (flowButton) openFlowDetails(flowButton.dataset.openFlow);
@@ -457,6 +478,28 @@
         render();
         setStatus('Error al eliminar', 'text-rose-600');
         tell(`No se eliminó el pago: ${error.message}`, 'error');
+      }
+    };
+    window.deleteSelectedPendingPayments = async () => {
+      if (!account) return tell('Conecta Microsoft antes de eliminar pagos.', 'error');
+      const selectedPayments = dataset.payments.filter(payment => selectedPaymentIds.has(payment.id) && !payment.flowId);
+      if (!selectedPayments.length) return tell('Selecciona al menos un pago pendiente.', 'info');
+      const total = selectedPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+      if (!confirm(`¿Eliminar ${selectedPayments.length} pagos pendientes por un total de ${money(total)}? Esta acción no se puede deshacer.`)) return;
+      const previousPayments = dataset.payments;
+      const deletedIds = new Set(selectedPayments.map(payment => payment.id));
+      dataset.payments = dataset.payments.filter(payment => !deletedIds.has(payment.id));
+      selectedPayments.forEach(payment => selectedPaymentIds.delete(payment.id));
+      try {
+        await saveCloudData();
+        render();
+        tell(`Se eliminaron ${selectedPayments.length} pagos pendientes.`, 'success');
+      } catch (error) {
+        dataset.payments = previousPayments;
+        selectedPayments.forEach(payment => selectedPaymentIds.add(payment.id));
+        render();
+        setStatus('Error al eliminar', 'text-rose-600');
+        tell(`No se eliminaron los pagos: ${error.message}`, 'error');
       }
     };
 
