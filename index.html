@@ -180,7 +180,7 @@
       for (const id of selectedPaymentIds) if (!pendingPayments.some(payment => payment.id === id)) selectedPaymentIds.delete(id);
       document.getElementById('paymentsTable').innerHTML = pendingPayments.length ? [...pendingPayments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
         const choices = openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('');
-        return `<tr class="border-b last:border-0"><td class="py-3 pr-3"><input type="checkbox" data-select-payment="${escapeHtml(p.id)}" aria-label="Seleccionar pago ${escapeHtml(p.description)}" ${selectedPaymentIds.has(p.id) ? 'checked' : ''}></td><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3"><span class="text-amber-700">Pendiente</span></td><td class="py-3"><div class="flex flex-wrap gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button class="btn btn-primary py-1.5" onclick="assignPayment('${escapeHtml(p.id)}')">Asignar</button><button class="btn border border-rose-300 text-rose-700 hover:bg-rose-50 py-1.5" onclick="deletePendingPayment('${escapeHtml(p.id)}')">Eliminar</button></div></td></tr>`;
+        return `<tr class="border-b last:border-0"><td class="py-3 pr-3"><input type="checkbox" data-select-payment="${escapeHtml(p.id)}" aria-label="Seleccionar pago ${escapeHtml(p.description)}" ${selectedPaymentIds.has(p.id) ? 'checked' : ''}></td><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3"><span class="text-amber-700">Pendiente</span></td><td class="py-3"><div class="flex flex-wrap gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button type="button" data-assign-payment="${escapeHtml(p.id)}" class="btn btn-primary py-1.5">Asignar</button><button type="button" data-delete-pending-payment="${escapeHtml(p.id)}" class="btn border border-rose-300 text-rose-700 hover:bg-rose-50 py-1.5">Eliminar</button></div></td></tr>`;
       }).join('') : '<tr><td colspan="6" class="py-10 text-center text-slate-500">No hay pagos pendientes de asignar.</td></tr>';
       const selectedVisiblePaymentCount = pendingPayments.filter(payment => selectedPaymentIds.has(payment.id)).length;
       const selectVisiblePayments = document.getElementById('selectVisiblePayments');
@@ -379,7 +379,13 @@
       selection.checked ? selectedPaymentIds.add(selection.dataset.selectPayment) : selectedPaymentIds.delete(selection.dataset.selectPayment);
       render();
     });
-    document.getElementById('deleteSelectedPaymentsButton').addEventListener('click', () => deleteSelectedPendingPayments());
+    document.getElementById('deleteSelectedPaymentsButton').addEventListener('click', () => window.deleteSelectedPendingPayments());
+    document.getElementById('paymentsTable').addEventListener('click', event => {
+      const assignButton = event.target.closest('[data-assign-payment]');
+      if (assignButton) return window.assignPayment(assignButton.dataset.assignPayment);
+      const deleteButton = event.target.closest('[data-delete-pending-payment]');
+      if (deleteButton) window.deletePendingPayment(deleteButton.dataset.deletePendingPayment);
+    });
     document.getElementById('flowsTable').addEventListener('dblclick', event => {
       const flowButton = event.target.closest('[data-open-flow]');
       if (flowButton) openFlowDetails(flowButton.dataset.openFlow);
