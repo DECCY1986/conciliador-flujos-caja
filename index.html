@@ -254,6 +254,33 @@
         showFlowDetailsMessage(`No se guardaron los soportes: ${error.message}`, 'error');
       }
     }
+    async function saveLookupPaymentSupport(paymentId, row) {
+      if (!account) return tell('Conecta Microsoft antes de guardar los soportes.', 'error');
+      const payment = dataset.payments.find(item => item.id === paymentId);
+      if (!payment || !row) return tell('No se encontró el pago. Vuelve a buscarlo e inténtalo de nuevo.', 'error');
+      const receiptInput = row.querySelector('[data-lookup-egress-receipt]');
+      const supportCheckbox = row.querySelector('[data-lookup-physical-support]');
+      const egressReceipt = receiptInput.value.trim();
+      const physicalSupportReceived = supportCheckbox.checked;
+      const previousReceipt = payment.egressReceipt || '';
+      const previousPhysicalSupport = Boolean(payment.physicalSupportReceived);
+      if (egressReceipt === previousReceipt && physicalSupportReceived === previousPhysicalSupport) return tell('No hay cambios en los soportes para guardar.', 'info');
+      payment.egressReceipt = egressReceipt;
+      payment.physicalSupportReceived = physicalSupportReceived;
+      try {
+        await saveCloudData();
+        supportCheckbox.nextElementSibling.textContent = physicalSupportReceived ? 'Sí' : 'No';
+        tell('Comprobante y estado del soporte físico guardados.', 'success');
+      } catch (error) {
+        payment.egressReceipt = previousReceipt;
+        payment.physicalSupportReceived = previousPhysicalSupport;
+        receiptInput.value = previousReceipt;
+        supportCheckbox.checked = previousPhysicalSupport;
+        supportCheckbox.nextElementSibling.textContent = previousPhysicalSupport ? 'Sí' : 'No';
+        setStatus('Error al guardar', 'text-rose-600');
+        tell(`No se guardaron los soportes: ${error.message}`, 'error');
+      }
+    }
     async function deleteAssociatedPayment(paymentId) {
       if (!account) return showFlowDetailsMessage('Conecta Microsoft antes de eliminar un pago.', 'error');
       const payment = dataset.payments.find(item => item.id === paymentId && item.flowId === selectedFlowDetailsId);
@@ -422,13 +449,14 @@
         return;
       }
       const flowById = new Map(dataset.flows.map(flow => [flow.id, flow]));
-      results.innerHTML = `<p class="mb-2 text-sm text-slate-600">${matches.length} coincidencia${matches.length === 1 ? '' : 's'} para ${money(amount)}.</p><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="p-2">Fecha</th><th class="p-2">Concepto</th><th class="p-2">Tipo</th><th class="p-2 text-right">Valor</th><th class="p-2">Flujo asociado</th><th class="p-2">Soporte físico</th></tr></thead><tbody>${matches.map(payment => {
+      results.innerHTML = `<p class="mb-2 text-sm text-slate-600">${matches.length} coincidencia${matches.length === 1 ? '' : 's'} para ${money(amount)}.</p><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="p-2">Fecha</th><th class="p-2">Concepto</th><th class="p-2">Tipo</th><th class="p-2 text-right">Valor</th><th class="p-2">Flujo asociado</th><th class="p-2">Comprobante de egreso</th><th class="p-2">Soporte físico</th><th class="p-2">Acción</th></tr></thead><tbody>${matches.map(payment => {
         const flow = flowById.get(payment.flowId);
-        const supportLabel = payment.physicalSupportReceived === true ? 'Sí, recibido' : payment.physicalSupportReceived === false ? 'No recibido' : 'Sin marcar';
-        return `<tr class="border-b"><td class="p-2">${escapeHtml(payment.date)}</td><td class="p-2">${escapeHtml(payment.description)}</td><td class="p-2">${escapeHtml(payment.category || '—')}</td><td class="p-2 text-right">${money(payment.amount)}</td><td class="p-2">${flow ? `<button type="button" data-open-flow="${escapeHtml(flow.id)}" class="font-semibold text-sky-800 hover:underline">${escapeHtml(flow.number)}</button>` : '<span class="text-amber-700">Pendiente de asignar</span>'}</td><td class="p-2 ${payment.physicalSupportReceived === true ? 'text-emerald-700' : 'text-amber-700'}">${supportLabel}</td></tr>`;
+        return `<tr class="border-b" data-lookup-payment-row="${escapeHtml(payment.id)}"><td class="p-2">${escapeHtml(payment.date)}</td><td class="p-2">${escapeHtml(payment.description)}</td><td class="p-2">${escapeHtml(payment.category || '—')}</td><td class="p-2 text-right">${money(payment.amount)}</td><td class="p-2">${flow ? `<button type="button" data-open-flow="${escapeHtml(flow.id)}" class="font-semibold text-sky-800 hover:underline">${escapeHtml(flow.number)}</button>` : '<span class="text-amber-700">Pendiente de asignar</span>'}</td><td class="p-2"><input data-lookup-egress-receipt class="field min-w-32 py-1.5" maxlength="100" value="${escapeHtml(payment.egressReceipt || '')}" placeholder="Nº comprobante" aria-label="Comprobante de egreso para ${escapeHtml(payment.description)}"></td><td class="p-2 text-center"><label class="inline-flex items-center gap-1"><input data-lookup-physical-support type="checkbox" class="h-4 w-4" ${payment.physicalSupportReceived ? 'checked' : ''} aria-label="Soporte físico recibido para ${escapeHtml(payment.description)}"><span>${payment.physicalSupportReceived === true ? 'Sí' : payment.physicalSupportReceived === false ? 'No' : 'Sin marcar'}</span></label></td><td class="p-2"><button type="button" data-save-lookup-support="${escapeHtml(payment.id)}" class="btn btn-light py-1 px-2 text-xs">Guardar</button></td></tr>`;
       }).join('')}</tbody></table>`;
     });
     document.getElementById('amountLookupResults').addEventListener('click', event => {
+      const saveButton = event.target.closest('[data-save-lookup-support]');
+      if (saveButton) return saveLookupPaymentSupport(saveButton.dataset.saveLookupSupport, saveButton.closest('tr'));
       const flowButton = event.target.closest('[data-open-flow]');
       if (flowButton) openFlowDetails(flowButton.dataset.openFlow);
     });
