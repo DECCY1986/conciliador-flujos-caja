@@ -46,6 +46,12 @@
       <div class="panel p-4"><div class="text-sm text-slate-500">Flujos cerrados</div><div id="closedCount" class="text-2xl font-bold mt-1">0</div></div>
     </section>
 
+    <section class="panel p-5 space-y-3">
+      <div><h2 class="text-lg font-bold">Buscar pago por valor</h2><p class="text-sm text-slate-500">Escribe el valor para encontrar el concepto y el flujo asociado. Busca en pagos aplicados y pendientes.</p></div>
+      <form id="amountLookupForm" class="flex flex-wrap items-end gap-3"><label class="block text-sm font-semibold">Valor (COP)<input id="amountLookupValue" required type="number" step="0.01" class="field mt-1 w-56" placeholder="Ej.: 22002"></label><button class="btn btn-primary">Buscar</button></form>
+      <div id="amountLookupResults" class="hidden overflow-x-auto"></div>
+    </section>
+
     <section class="panel overflow-hidden">
       <div class="border-b flex gap-6 px-5">
         <button class="tab-button py-4 font-semibold tab-active" data-tab="flows">Flujos</button>
@@ -378,6 +384,27 @@
       localStorage.setItem('cashflow_folder_link', folderLinkValue);
       if (account) { try { await loadCloudData(); tell('Carpeta conectada; el registro compartido está cargado.', 'success'); } catch (error) { tell(error.message, 'error'); } }
       else tell('Vínculo guardado en este navegador. Pulsa “Conectar Microsoft” para validar acceso.', 'success');
+    });
+    document.getElementById('amountLookupForm').addEventListener('submit', event => {
+      event.preventDefault();
+      const amount = Number(document.getElementById('amountLookupValue').value);
+      if (!Number.isFinite(amount)) return;
+      const matches = dataset.payments.filter(payment => Math.abs(Number(payment.amount) - amount) < 0.005).sort((first, second) => String(second.date).localeCompare(String(first.date)));
+      const results = document.getElementById('amountLookupResults');
+      results.classList.remove('hidden');
+      if (!matches.length) {
+        results.innerHTML = '<p class="py-3 text-sm text-slate-500">No encontré pagos con ese valor.</p>';
+        return;
+      }
+      const flowById = new Map(dataset.flows.map(flow => [flow.id, flow]));
+      results.innerHTML = `<p class="mb-2 text-sm text-slate-600">${matches.length} coincidencia${matches.length === 1 ? '' : 's'} para ${money(amount)}.</p><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="p-2">Fecha</th><th class="p-2">Concepto</th><th class="p-2">Tipo</th><th class="p-2 text-right">Valor</th><th class="p-2">Flujo asociado</th></tr></thead><tbody>${matches.map(payment => {
+        const flow = flowById.get(payment.flowId);
+        return `<tr class="border-b"><td class="p-2">${escapeHtml(payment.date)}</td><td class="p-2">${escapeHtml(payment.description)}</td><td class="p-2">${escapeHtml(payment.category || '—')}</td><td class="p-2 text-right">${money(payment.amount)}</td><td class="p-2">${flow ? `<button type="button" data-open-flow="${escapeHtml(flow.id)}" class="font-semibold text-sky-800 hover:underline">${escapeHtml(flow.number)}</button>` : '<span class="text-amber-700">Pendiente de asignar</span>'}</td></tr>`;
+      }).join('')}</tbody></table>`;
+    });
+    document.getElementById('amountLookupResults').addEventListener('click', event => {
+      const flowButton = event.target.closest('[data-open-flow]');
+      if (flowButton) openFlowDetails(flowButton.dataset.openFlow);
     });
     document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
     document.getElementById('flowStatusFilter').addEventListener('change', () => { selectedFlowIds.clear(); render(); });
