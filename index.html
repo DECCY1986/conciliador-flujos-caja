@@ -422,9 +422,10 @@
         return;
       }
       const flowById = new Map(dataset.flows.map(flow => [flow.id, flow]));
-      results.innerHTML = `<p class="mb-2 text-sm text-slate-600">${matches.length} coincidencia${matches.length === 1 ? '' : 's'} para ${money(amount)}.</p><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="p-2">Fecha</th><th class="p-2">Concepto</th><th class="p-2">Tipo</th><th class="p-2 text-right">Valor</th><th class="p-2">Flujo asociado</th></tr></thead><tbody>${matches.map(payment => {
+      results.innerHTML = `<p class="mb-2 text-sm text-slate-600">${matches.length} coincidencia${matches.length === 1 ? '' : 's'} para ${money(amount)}.</p><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="p-2">Fecha</th><th class="p-2">Concepto</th><th class="p-2">Tipo</th><th class="p-2 text-right">Valor</th><th class="p-2">Flujo asociado</th><th class="p-2">Soporte físico</th></tr></thead><tbody>${matches.map(payment => {
         const flow = flowById.get(payment.flowId);
-        return `<tr class="border-b"><td class="p-2">${escapeHtml(payment.date)}</td><td class="p-2">${escapeHtml(payment.description)}</td><td class="p-2">${escapeHtml(payment.category || '—')}</td><td class="p-2 text-right">${money(payment.amount)}</td><td class="p-2">${flow ? `<button type="button" data-open-flow="${escapeHtml(flow.id)}" class="font-semibold text-sky-800 hover:underline">${escapeHtml(flow.number)}</button>` : '<span class="text-amber-700">Pendiente de asignar</span>'}</td></tr>`;
+        const supportLabel = payment.physicalSupportReceived === true ? 'Sí, recibido' : payment.physicalSupportReceived === false ? 'No recibido' : 'Sin marcar';
+        return `<tr class="border-b"><td class="p-2">${escapeHtml(payment.date)}</td><td class="p-2">${escapeHtml(payment.description)}</td><td class="p-2">${escapeHtml(payment.category || '—')}</td><td class="p-2 text-right">${money(payment.amount)}</td><td class="p-2">${flow ? `<button type="button" data-open-flow="${escapeHtml(flow.id)}" class="font-semibold text-sky-800 hover:underline">${escapeHtml(flow.number)}</button>` : '<span class="text-amber-700">Pendiente de asignar</span>'}</td><td class="p-2 ${payment.physicalSupportReceived === true ? 'text-emerald-700' : 'text-amber-700'}">${supportLabel}</td></tr>`;
       }).join('')}</tbody></table>`;
     });
     document.getElementById('amountLookupResults').addEventListener('click', event => {
