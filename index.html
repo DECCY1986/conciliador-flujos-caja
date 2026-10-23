@@ -53,11 +53,11 @@
         <button class="tab-button py-4 font-semibold text-slate-500" data-tab="imports">Importar Excel</button>
       </div>
       <div id="flowsTab" class="p-5 space-y-4">
-        <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-lg font-bold">Flujos de caja</h2><p class="text-sm text-slate-500">Finanzas registra el ingreso y su número oficial. Haz doble clic en el número para ver sus pagos y agregar otros.</p></div><div class="flex flex-wrap items-center gap-2"><label for="flowStatusFilter" class="text-sm font-semibold">Mostrar:</label><select id="flowStatusFilter" class="field w-auto"><option value="all">Todos</option><option value="open">Abiertos</option><option value="closed">Cerrados</option></select><button id="deleteSelectedFlowsButton" class="btn border border-rose-300 text-rose-700 hover:bg-rose-50" disabled>Eliminar seleccionados (0)</button><button id="closeZeroBalanceFlowsButton" class="btn btn-light" disabled>Cerrar flujos en $0 (0)</button><button id="newFlowButton" class="btn btn-primary">Crear flujo</button></div></div>
+        <div class="flex flex-wrap justify-between items-center gap-3"><div><h2 class="text-lg font-bold">Flujos de caja</h2><p class="text-sm text-slate-500">Finanzas registra el ingreso y su número oficial. Haz doble clic en el número para ver sus pagos y agregar otros.</p></div><div class="flex flex-wrap items-center gap-2"><label for="flowStatusFilter" class="text-sm font-semibold">Mostrar:</label><select id="flowStatusFilter" class="field w-auto"><option value="all">Todos</option><option value="open">Abiertos</option><option value="closed">Cerrados</option></select><label for="flowDateFrom" class="text-sm">Desde</label><input id="flowDateFrom" type="date" class="field w-auto" aria-label="Fecha inicial de flujos"><label for="flowDateTo" class="text-sm">Hasta</label><input id="flowDateTo" type="date" class="field w-auto" aria-label="Fecha final de flujos"><button id="clearFlowDatesButton" type="button" class="btn btn-light py-2">Limpiar fechas</button><button id="deleteSelectedFlowsButton" class="btn border border-rose-300 text-rose-700 hover:bg-rose-50" disabled>Eliminar seleccionados (0)</button><button id="closeZeroBalanceFlowsButton" class="btn btn-light" disabled>Cerrar flujos en $0 (0)</button><button id="newFlowButton" class="btn btn-primary">Crear flujo</button></div></div>
         <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3"><input id="selectVisibleFlows" type="checkbox" aria-label="Seleccionar los flujos visibles"></th><th class="py-3 pr-3">Nº flujo</th><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Ingreso</th><th class="py-3 pr-3 text-right">Pagado</th><th class="py-3 pr-3 text-right">Saldo</th><th class="py-3">Estado</th></tr></thead><tbody id="flowsTable"></tbody></table></div>
       </div>
       <div id="paymentsTab" class="p-5 hidden space-y-4">
-        <div><h2 class="text-lg font-bold">Pagos registrados</h2><p class="text-sm text-slate-500">Asigna los pagos pendientes a un flujo abierto. Cada asignación descuenta el saldo.</p></div>
+        <div class="flex flex-wrap items-center gap-2"><div class="mr-auto"><h2 class="text-lg font-bold">Pagos registrados</h2><p class="text-sm text-slate-500">Asigna los pagos pendientes a un flujo abierto. Cada asignación descuenta el saldo.</p></div><label for="paymentDateFrom" class="text-sm">Desde</label><input id="paymentDateFrom" type="date" class="field w-auto" aria-label="Fecha inicial de pagos"><label for="paymentDateTo" class="text-sm">Hasta</label><input id="paymentDateTo" type="date" class="field w-auto" aria-label="Fecha final de pagos"><button id="clearPaymentDatesButton" type="button" class="btn btn-light py-2">Limpiar fechas</button></div>
         <div class="flex justify-end"><button id="deleteSelectedPaymentsButton" class="btn border border-rose-300 text-rose-700 hover:bg-rose-50" disabled>Eliminar seleccionados (0)</button></div><div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-left text-slate-500 border-b"><tr><th class="py-3 pr-3"><input id="selectVisiblePayments" type="checkbox" aria-label="Seleccionar pagos pendientes visibles"></th><th class="py-3 pr-3">Fecha</th><th class="py-3 pr-3">Descripción</th><th class="py-3 pr-3 text-right">Valor</th><th class="py-3 pr-3">Nº flujo</th><th class="py-3">Acción</th></tr></thead><tbody id="paymentsTable"></tbody></table></div>
       </div>
       <div id="importsTab" class="p-5 hidden space-y-4">
@@ -162,7 +162,9 @@
       document.getElementById('closedCount').textContent = dataset.flows.filter(f => f.status === 'closed').length;
       document.getElementById('unassignedCount').textContent = dataset.payments.filter(p => !p.flowId).length;
       const statusFilter = document.getElementById('flowStatusFilter').value;
-      const flows = [...dataset.flows].filter(flow => statusFilter === 'all' || flow.status === statusFilter).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
+      const flowDateFrom = document.getElementById('flowDateFrom').value;
+      const flowDateTo = document.getElementById('flowDateTo').value;
+      const flows = [...dataset.flows].filter(flow => (statusFilter === 'all' || flow.status === statusFilter) && (!flowDateFrom || String(flow.date || '') >= flowDateFrom) && (!flowDateTo || String(flow.date || '') <= flowDateTo)).sort((a,b) => b.createdAt.localeCompare(a.createdAt));
       for (const id of selectedFlowIds) if (!dataset.flows.some(flow => flow.id === id)) selectedFlowIds.delete(id);
       const zeroBalanceOpenFlows = dataset.flows.filter(flow => flow.status !== 'closed' && Math.abs(balanceFor(flow)) < 0.5);
       const closeZeroBalanceButton = document.getElementById('closeZeroBalanceFlowsButton');
@@ -176,8 +178,11 @@
       const deleteSelectedButton = document.getElementById('deleteSelectedFlowsButton');
       deleteSelectedButton.textContent = `Eliminar seleccionados (${selectedFlowIds.size})`;
       deleteSelectedButton.disabled = selectedFlowIds.size === 0;
-      const pendingPayments = dataset.payments.filter(payment => !payment.flowId);
-      for (const id of selectedPaymentIds) if (!pendingPayments.some(payment => payment.id === id)) selectedPaymentIds.delete(id);
+      const allPendingPayments = dataset.payments.filter(payment => !payment.flowId);
+      for (const id of selectedPaymentIds) if (!allPendingPayments.some(payment => payment.id === id)) selectedPaymentIds.delete(id);
+      const paymentDateFrom = document.getElementById('paymentDateFrom').value;
+      const paymentDateTo = document.getElementById('paymentDateTo').value;
+      const pendingPayments = allPendingPayments.filter(payment => (!paymentDateFrom || String(payment.date || '') >= paymentDateFrom) && (!paymentDateTo || String(payment.date || '') <= paymentDateTo));
       document.getElementById('paymentsTable').innerHTML = pendingPayments.length ? [...pendingPayments].sort((a,b) => b.date.localeCompare(a.date)).map(p => {
         const choices = openFlows.map(openFlow => `<option value="${escapeHtml(openFlow.id)}">${escapeHtml(openFlow.number)} · saldo ${money(balanceFor(openFlow))}</option>`).join('');
         return `<tr class="border-b last:border-0"><td class="py-3 pr-3"><input type="checkbox" data-select-payment="${escapeHtml(p.id)}" aria-label="Seleccionar pago ${escapeHtml(p.description)}" ${selectedPaymentIds.has(p.id) ? 'checked' : ''}></td><td class="py-3 pr-3">${escapeHtml(p.date)}</td><td class="py-3 pr-3">${escapeHtml(p.description)}</td><td class="py-3 pr-3 text-right">${money(p.amount)}</td><td class="py-3 pr-3"><span class="text-amber-700">Pendiente</span></td><td class="py-3"><div class="flex flex-wrap gap-2"><select id="assign-${escapeHtml(p.id)}" class="field min-w-44 py-1.5"><option value="">Asignar flujo…</option>${choices}</select><button type="button" data-assign-payment="${escapeHtml(p.id)}" class="btn btn-primary py-1.5">Asignar</button><button type="button" data-delete-pending-payment="${escapeHtml(p.id)}" class="btn border border-rose-300 text-rose-700 hover:bg-rose-50 py-1.5">Eliminar</button></div></td></tr>`;
@@ -375,10 +380,26 @@
       else tell('Vínculo guardado en este navegador. Pulsa “Conectar Microsoft” para validar acceso.', 'success');
     });
     document.querySelectorAll('.tab-button').forEach(button => button.addEventListener('click', () => switchTab(button.dataset.tab)));
-    document.getElementById('flowStatusFilter').addEventListener('change', render);
+    document.getElementById('flowStatusFilter').addEventListener('change', () => { selectedFlowIds.clear(); render(); });
+    ['flowDateFrom', 'flowDateTo'].forEach(id => document.getElementById(id).addEventListener('change', () => { selectedFlowIds.clear(); render(); }));
+    ['paymentDateFrom', 'paymentDateTo'].forEach(id => document.getElementById(id).addEventListener('change', () => { selectedPaymentIds.clear(); render(); }));
+    document.getElementById('clearFlowDatesButton').addEventListener('click', () => {
+      document.getElementById('flowDateFrom').value = '';
+      document.getElementById('flowDateTo').value = '';
+      selectedFlowIds.clear();
+      render();
+    });
+    document.getElementById('clearPaymentDatesButton').addEventListener('click', () => {
+      document.getElementById('paymentDateFrom').value = '';
+      document.getElementById('paymentDateTo').value = '';
+      selectedPaymentIds.clear();
+      render();
+    });
     document.getElementById('selectVisibleFlows').addEventListener('change', event => {
       const statusFilter = document.getElementById('flowStatusFilter').value;
-      const visibleFlows = dataset.flows.filter(flow => statusFilter === 'all' || flow.status === statusFilter);
+      const from = document.getElementById('flowDateFrom').value;
+      const to = document.getElementById('flowDateTo').value;
+      const visibleFlows = dataset.flows.filter(flow => (statusFilter === 'all' || flow.status === statusFilter) && (!from || String(flow.date || '') >= from) && (!to || String(flow.date || '') <= to));
       visibleFlows.forEach(flow => event.target.checked ? selectedFlowIds.add(flow.id) : selectedFlowIds.delete(flow.id));
       render();
     });
@@ -394,7 +415,9 @@
     });
     document.getElementById('deleteSelectedFlowsButton').addEventListener('click', () => deleteFlows([...selectedFlowIds]));
     document.getElementById('selectVisiblePayments').addEventListener('change', event => {
-      const pendingPayments = dataset.payments.filter(payment => !payment.flowId);
+      const from = document.getElementById('paymentDateFrom').value;
+      const to = document.getElementById('paymentDateTo').value;
+      const pendingPayments = dataset.payments.filter(payment => !payment.flowId && (!from || String(payment.date || '') >= from) && (!to || String(payment.date || '') <= to));
       pendingPayments.forEach(payment => event.target.checked ? selectedPaymentIds.add(payment.id) : selectedPaymentIds.delete(payment.id));
       render();
     });
